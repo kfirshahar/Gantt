@@ -14,7 +14,7 @@ from openpyxl import load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gantt import demo, layout as L, names as N, reference  # noqa: E402
+from gantt import calendar_utils as C, demo, layout as L, names as N, reference  # noqa: E402
 from gantt.build import build  # noqa: E402
 
 SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
@@ -251,10 +251,6 @@ def _recalc(wb, tmp_path_factory, label: str):
     return load_workbook(outdir / src.name, data_only=True)
 
 
-def _unfit(rows) -> float:
-    return sum(r.effort - sum(r.weekly.values()) for r in rows)
-
-
 def test_horizon_cell_extends_the_plan(built, tmp_path_factory):
     """Raising Horizon on Config must lengthen the plan with no regeneration.
 
@@ -290,7 +286,12 @@ def test_horizon_cell_extends_the_plan(built, tmp_path_factory):
     assert tail > 0, "extending the horizon scheduled nothing new"
 
     unfit_12 = _unfit(reference.schedule_weekly(reference.build_subtasks(), demo.HORIZON))
-    assert _unfit(expected) < unfit_12, "extending the horizon did not reduce unscheduled work"
+    unfit_16 = _unfit(expected)
+    assert unfit_16 < unfit_12, "extending the horizon did not reduce unscheduled work"
+
+
+def _unfit(rows) -> float:
+    return sum(r.effort - sum(r.weekly.values()) for r in rows)
 
 
 def test_task_beyond_horizon_is_flagged_not_silently_dropped(built, tmp_path_factory):
@@ -307,6 +308,64 @@ def test_task_beyond_horizon_is_flagged_not_silently_dropped(built, tmp_path_fac
     assert "outside horizon" in check, check
 
 
+def test_week_labels_wrap_at_the_year_boundary(built, tmp_path_factory):
+    """WW33 + 26 weeks runs into 2027; column 21 must read WW01 '27, not WW53."""
+    if not Path(SOFFICE).exists():
+        pytest.skip("LibreOffice not installed")
+
+    wb = load_workbook(built)
+    wb[L.CONFIG].cell(row=L.CFG_HORIZON_ROW, column=2).value = L.WEEK_COLS
+    got = _recalc(wb, tmp_path_factory, "wrap")
+    ws = got[L.CALC_WEEK]
+
+    crossed = False
+    for i in range(L.WEEK_COLS):
+        col = L.CW_FIRST_WEEK_COL + i
+        sunday = ws.cell(row=L.CW_SUN_ROW, column=col).value.date()
+        year, week = C.calendar_week(sunday)
+
+        assert ws.cell(row=L.CW_YEAR_ROW, column=col).value == year
+        assert ws.cell(row=L.CW_WEEK_ROW, column=col).value == week
+        assert week <= 53, f"column {i} produced week {week}"
+
+        expected = f"WW{week:02d}" + (f" '{year - 2000:02d}" if year != demo.YEAR else "")
+        assert ws.cell(row=L.CW_LABEL_ROW, column=col).value == expected
+        crossed |= year != demo.YEAR
+
+    assert crossed, "this dataset was supposed to cross into the next year"
+
+
+def test_start_week_is_a_real_calendar_week(built, tmp_path_factory):
+    """Typing 2 for a plan reaching into 2027 must mean WW02 of 2027."""
+    if not Path(SOFFICE).exists():
+        pytest.skip("LibreOffice not installed")
+
+    wb = load_workbook(built)
+    wb[L.CONFIG].cell(row=L.CFG_HORIZON_ROW, column=2).value = L.WEEK_COLS
+    # T-03 is one small sub-task, so it fits inside the weeks that remain.
+    wb[L.TASKS].cell(row=L.TASK_FIRST_ROW + 2, column=L.T_START_WW).value = 2
+    got = _recalc(wb, tmp_path_factory, "calweek")
+
+    cw = got[L.CALC_WEEK]
+    target = None
+    for i in range(L.WEEK_COLS):
+        col = L.CW_FIRST_WEEK_COL + i
+        if (cw.cell(row=L.CW_WEEK_ROW, column=col).value == 2
+                and cw.cell(row=L.CW_YEAR_ROW, column=col).value == demo.YEAR + 1):
+            target = i + 1
+    assert target is not None
+
+    tasks = got[L.TASKS]
+    assert tasks.cell(row=L.TASK_FIRST_ROW + 2, column=L.T_CHECK).value == "ok"
+    assert tasks.cell(row=L.TASK_FIRST_ROW + 2, column=L.T_CALC_START).value == "WW02 '27"
+
+    # nothing for that task before the resolved position
+    row = L.CW_TASKWEEK_FIRST + 2
+    for i in range(target - 1):
+        assert cw.cell(row=row, column=L.CW_FIRST_WEEK_COL + i).value == 0
+    assert cw.cell(row=row, column=L.CW_FIRST_WEEK_COL + target - 1).value > 0
+
+
 def test_window_opened_mid_project(built, tmp_path_factory):
     """A window that starts after work has begun must show residual effort only.
 
@@ -317,10 +376,18 @@ def test_window_opened_mid_project(built, tmp_path_factory):
         pytest.skip("LibreOffice not installed")
 
     start, weeks = demo.START_WEEK + 4, 3
+    edited = tmp_path_factory.mktemp("window") / "shifted.xlsx"
     wb = load_workbook(built)
     wb[L.GANTT_DEEP][L.GD_WINDOW_START_CELL] = start
     wb[L.GANTT_DEEP][L.GD_WINDOW_WEEKS_CELL] = weeks
-    got = _recalc(wb, tmp_path_factory, "window")
+    wb.save(edited)
+
+    outdir = tmp_path_factory.mktemp("window_recalc")
+    subprocess.run(
+        [SOFFICE, "--headless", "--norestore", "--convert-to", "xlsx",
+         "--outdir", str(outdir), str(edited)],
+        check=True, capture_output=True, timeout=300)
+    got = load_workbook(outdir / edited.name, data_only=True)
 
     expected = reference.solve(window_start=start, window_weeks=weeks)
     by_rank = {s.rank: s for s in expected}

@@ -38,14 +38,12 @@ NAMES = {
     "AsgProf": L.abs_range(L.ASSIGNEES, 2, L.GRID_FIRST_DATA_ROW, 2, _LAST_ASG),
     # Capacity
     "CapNames": L.abs_range(L.CAPACITY, 1, L.GRID_FIRST_DATA_ROW, 1, _LAST_ASG),
-    "CapWeeks": L.abs_range(L.CAPACITY, L.GRID_FIRST_WEEK_COL, 1, _LAST_WEEK_COL, 1),
     "CapGrid": L.abs_range(L.CAPACITY, L.GRID_FIRST_WEEK_COL, L.GRID_FIRST_DATA_ROW,
                            _LAST_WEEK_COL, _LAST_ASG),
     "CapTotals": L.abs_range(L.CAPACITY, _LAST_WEEK_COL + 1, L.GRID_FIRST_DATA_ROW,
                              _LAST_WEEK_COL + 1, _LAST_ASG),
     # Equipment
     "EqpNames": L.abs_range(L.EQUIPMENT, 1, L.GRID_FIRST_DATA_ROW, 1, _LAST_EQP),
-    "EqpWeeks": L.abs_range(L.EQUIPMENT, L.GRID_FIRST_WEEK_COL, 1, _LAST_WEEK_COL, 1),
     "EqpGrid": L.abs_range(L.EQUIPMENT, L.GRID_FIRST_WEEK_COL, L.GRID_FIRST_DATA_ROW,
                            _LAST_WEEK_COL, _LAST_EQP),
     # Holidays
@@ -67,8 +65,19 @@ NAMES = {
     "SubKey": L.abs_range(L.SUBTASKS, L.S_KEY, L.SUB_FIRST_ROW, L.S_KEY, _LAST_SUB),
     "SubRank": L.abs_range(L.SUBTASKS, L.S_RANK, L.SUB_FIRST_ROW, L.S_RANK, _LAST_SUB),
     # CalcWeek
-    "CwWeeks": L.abs_range(L.CALC_WEEK, L.CW_FIRST_WEEK_COL, L.CW_HDR_ROW,
-                           _CW_LAST_WEEK_COL, L.CW_HDR_ROW),
+    # CwWeeks holds the real calendar week number of each column, which is what
+    # the user types on Tasks and what MATCH resolves to a position. CwPos is
+    # the internal key; CwLabel is display text.
+    "CwWeeks": L.abs_range(L.CALC_WEEK, L.CW_FIRST_WEEK_COL, L.CW_WEEK_ROW,
+                           _CW_LAST_WEEK_COL, L.CW_WEEK_ROW),
+    "CwPos": L.abs_range(L.CALC_WEEK, L.CW_FIRST_WEEK_COL, L.CW_POS_ROW,
+                         _CW_LAST_WEEK_COL, L.CW_POS_ROW),
+    "CwYear": L.abs_range(L.CALC_WEEK, L.CW_FIRST_WEEK_COL, L.CW_YEAR_ROW,
+                          _CW_LAST_WEEK_COL, L.CW_YEAR_ROW),
+    "CwActive": L.abs_range(L.CALC_WEEK, L.CW_FIRST_WEEK_COL, L.CW_ACTIVE_ROW,
+                            _CW_LAST_WEEK_COL, L.CW_ACTIVE_ROW),
+    "CwLabel": L.abs_range(L.CALC_WEEK, L.CW_FIRST_WEEK_COL, L.CW_LABEL_ROW,
+                           _CW_LAST_WEEK_COL, L.CW_LABEL_ROW),
     "CwParent": L.abs_range(L.CALC_WEEK, L.CW_PARENT, L.CW_FIRST_ROW, L.CW_PARENT, _CW_LAST_ROW),
     "CwAssignee": L.abs_range(L.CALC_WEEK, L.CW_ASSIGNEE, L.CW_FIRST_ROW,
                               L.CW_ASSIGNEE, _CW_LAST_ROW),

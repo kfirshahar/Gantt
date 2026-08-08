@@ -25,8 +25,12 @@ def _row_identity(ws, r: int, rank_col: int, first_row: int) -> None:
             value=f'=IF($B{r}="","",{_pull(rank, "SubAsgEff")})')
     ws.cell(row=r, column=rank_col + 5,
             value=f'=IF($B{r}="","",{_pull(rank, "SubParent")})')
-    ws.cell(row=r, column=rank_col + 4,
-            value=f'=IF($B{r}="",0,IFERROR(INDEX(TaskStartWW,MATCH($F{r},TaskIDs,0)),0))')
+    # Column E is the start *position*, resolved from the calendar week the user
+    # typed. An unknown week yields 9999 so the sub-task never schedules and the
+    # Tasks check reports it, rather than it quietly landing in week one.
+    ws.cell(row=r, column=rank_col + 4, value=(
+        f'=IF($B{r}="",9999,IFERROR(MATCH('
+        f'INDEX(TaskStartWW,MATCH($F{r},TaskIDs,0)),CwWeeks,0),9999))'))
 
 
 def _effort_expr(r: int) -> str:
@@ -39,18 +43,7 @@ def build_calc_week(ws) -> None:
     hdr, first, last = L.CW_HDR_ROW, L.CW_FIRST_ROW, N.CW_LAST_ROW
     S.header_row(ws, hdr, 1,
                  ["Rank", "Sub ID", "Assignee", "Effort", "Start WW", "Parent"])
-    ws.cell(row=L.CW_ACTIVE_ROW, column=1, value="Active?").font = S.FONT_NOTE
-    for i in range(L.WEEK_COLS):
-        wc = L.col(L.CW_FIRST_WEEK_COL + i)
-        # Weeks past the configured horizon are switched off here, which is what
-        # lets Config's Horizon cell lengthen or shorten the plan without the
-        # workbook being regenerated.
-        ws.cell(row=L.CW_ACTIVE_ROW, column=L.CW_FIRST_WEEK_COL + i,
-                value=f"=IF({wc}${L.CW_HDR_ROW}<=CfgStartWeek+CfgHorizon-1,1,0)")
-        c = ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
-        c.number_format = '"WW"0'
-        c.fill = S.FILL_INPUT_HDR
-        c.font = S.FONT_HDR
+    _week_headers(ws)
 
     for r in range(first, last + 1):
         _row_identity(ws, r, L.CW_RANK, first)
@@ -59,14 +52,17 @@ def build_calc_week(ws) -> None:
 
         for i in range(L.WEEK_COLS):
             wc = L.col(L.CW_FIRST_WEEK_COL + i)
+            pos = i + 1
             prior = "0" if i == 0 else f"SUM($G{r}:{L.col(L.CW_FIRST_WEEK_COL + i - 1)}{r})"
-            cap = (f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),"
-                   f"MATCH({wc}${hdr},CapWeeks,0)),0)")
+            # Column position is known at generation time, so the capacity
+            # lookup indexes straight into the grid instead of matching on a
+            # header. Nothing here depends on the week's calendar number.
+            cap = f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),{pos}),0)"
             claimed = ("0" if r == first else
                        f"SUMIF($C${first}:$C{r - 1},$C{r},{wc}${first}:{wc}{r - 1})")
             ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + i, value=(
                 f'=IF($B{r}="",0,IF({wc}${L.CW_ACTIVE_ROW}=0,0,'
-                f'IF({wc}${hdr}<$E{r},0,'
+                f'IF({pos}<$E{r},0,'
                 f'MAX(0,MIN($D{r}-{prior},{cap}-{claimed})))))')).number_format = "0.00"
 
     _task_rollup(ws)
@@ -75,12 +71,53 @@ def build_calc_week(ws) -> None:
     ws.sheet_state = "hidden"
 
 
+def _week_headers(ws) -> None:
+    """Seven helper rows describing each week column.
+
+    Position drives the machinery; the calendar week and year are derived from
+    the column's actual Sunday, so a plan crossing New Year labels itself
+    correctly instead of counting on to WW58.
+    """
+    labels = [(L.CW_POS_ROW, "Position"), (L.CW_ABS_ROW, "Absolute"),
+              (L.CW_SUN_ROW, "Sunday"), (L.CW_YEAR_ROW, "Year"),
+              (L.CW_WEEK_ROW, "Calendar WW"), (L.CW_ACTIVE_ROW, "Active?"),
+              (L.CW_LABEL_ROW, "Label")]
+    for row, text in labels:
+        ws.cell(row=row, column=1, value=text).font = S.FONT_NOTE
+
+    for i in range(L.WEEK_COLS):
+        col = L.CW_FIRST_WEEK_COL + i
+        wc = L.col(col)
+        pos, abs_, sun = f"{wc}${L.CW_POS_ROW}", f"{wc}${L.CW_ABS_ROW}", f"{wc}${L.CW_SUN_ROW}"
+        year, week = f"{wc}${L.CW_YEAR_ROW}", f"{wc}${L.CW_WEEK_ROW}"
+
+        ws.cell(row=L.CW_POS_ROW, column=col, value=i + 1)
+        ws.cell(row=L.CW_ABS_ROW, column=col, value=f"=CfgStartWeek+{pos}-1")
+        d = ws.cell(row=L.CW_SUN_ROW, column=col,
+                    value=f"={C.excel_week_sunday_formula('CfgYear', abs_)}")
+        d.number_format = "yyyy-mm-dd"
+        ws.cell(row=L.CW_YEAR_ROW, column=col,
+                value=f"={C.excel_calendar_year_formula(sun)}")
+        ws.cell(row=L.CW_WEEK_ROW, column=col,
+                value=f"={C.excel_calendar_week_formula(sun, year)}")
+        # Weeks past the configured horizon are switched off here, which is what
+        # lets Config's Horizon cell lengthen or shorten the plan without the
+        # workbook being regenerated.
+        ws.cell(row=L.CW_ACTIVE_ROW, column=col, value=f"=IF({pos}<=CfgHorizon,1,0)")
+        ws.cell(row=L.CW_LABEL_ROW, column=col,
+                value=f"={C.excel_week_label_formula(week, year, 'CfgYear')}")
+
+        h = ws.cell(row=L.CW_HDR_ROW, column=col, value=f"={wc}${L.CW_LABEL_ROW}")
+        h.fill = S.FILL_INPUT_HDR
+        h.font = S.FONT_HDR
+
+
 def _task_rollup(ws) -> None:
     """One row per task: that task's allocated days in each week."""
     hdr, first = L.CW_TASKWEEK_HDR, L.CW_TASKWEEK_FIRST
     S.header_row(ws, hdr, 1, ["Task ID (rollup)"])
     for i in range(L.WEEK_COLS):
-        ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
+        ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=INDEX(CwLabel,{i + 1})")
 
     for i in range(L.MAX_TASKS):
         r = first + i
@@ -100,7 +137,7 @@ def _assignee_rollup(ws) -> None:
     hdr, first = L.CW_AWWEEK_HDR, L.CW_AWWEEK_FIRST
     S.header_row(ws, hdr, 1, ["Assignee (load)"])
     for i in range(L.WEEK_COLS):
-        ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
+        ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=INDEX(CwLabel,{i + 1})")
 
     for i in range(L.MAX_ASSIGNEES):
         r = first + i
@@ -124,7 +161,7 @@ def _equipment_demand(ws) -> None:
     hdr, first = L.CW_EQPWEEK_HDR, L.CW_EQPWEEK_FIRST
     S.header_row(ws, hdr, 1, ["Equipment (demand)"])
     for i in range(L.WEEK_COLS):
-        ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
+        ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=INDEX(CwLabel,{i + 1})")
 
     for i in range(L.MAX_EQUIPMENT):
         r = first + i
@@ -153,55 +190,66 @@ def build_calc_day(ws) -> None:
         cw_span = (f"{L.sheet_ref(L.CALC_WEEK)}!"
                    f"${L.col(L.CW_FIRST_WEEK_COL)}${cw_row}:${L.col(N.CW_LAST_WEEK_COL)}${cw_row}")
         # Effort already burned before the window opens, so a window opened
-        # mid-project shows correct residual work.
+        # mid-project shows correct residual work. Compared by position, not by
+        # week number, which would misorder across a year boundary.
         ws.cell(row=r, column=L.CD_REMAINING, value=(
             f'=IF($B{r}="",0,MAX(0,{_effort_expr(r)}'
-            f'-SUMPRODUCT((CwWeeks<DeepStartWeek)*{cw_span})))')).number_format = "0.00"
+            f'-SUMPRODUCT((CwPos<{_deep_start_pos()})*{cw_span})))')).number_format = "0.00"
 
         for i in range(L.DEEP_DAY_COLS):
             dc = L.col(L.CD_FIRST_DAY_COL + i)
+            pos = f"{dc}${L.CD_POS_ROW}"
             prior = ("0" if i == 0 else
                      f"SUM($G{r}:{L.col(L.CD_FIRST_DAY_COL + i - 1)}{r})")
             claimed = ("0" if r == first else
                        f"SUMIF($C${first}:$C{r - 1},$C{r},{dc}${first}:{dc}{r - 1})")
-            week_cap = (f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),"
-                        f"MATCH({dc}${L.CD_WEEKNO_ROW},CapWeeks,0)),0)")
+            week_cap = (f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),{pos}),0)")
             day_cap = (f'IF(OR({dc}${L.CD_INWINDOW_ROW}=0,{dc}${L.CD_HOLIDAY_ROW}=1,'
                        f'{dc}${L.CD_WORKDAYS_ROW}<=0),0,'
                        f'{week_cap}/{dc}${L.CD_WORKDAYS_ROW})')
             ws.cell(row=r, column=L.CD_FIRST_DAY_COL + i, value=(
                 f'=IF($B{r}="",0,IF({dc}${L.CD_INWINDOW_ROW}=0,0,'
-                f'IF({dc}${L.CD_WEEKNO_ROW}<$E{r},0,'
+                f'IF({pos}<$E{r},0,'
                 f'MAX(0,MIN($D{r}-{prior},{day_cap}-{claimed})))))')).number_format = "0.00"
 
     ws.sheet_state = "hidden"
 
 
+def _deep_start_pos() -> str:
+    """Position of the window's first week, from the calendar week the user typed."""
+    return "IFERROR(MATCH(DeepStartWeek,CwWeeks,0),1)"
+
+
 def _day_headers(ws) -> None:
-    """Five helper rows describing each day column: week number, date, holiday
-    flag, that week's working-day count, and whether it is inside the window."""
-    sunday = C.excel_week_sunday_formula("CfgYear", f"{{c}}${L.CD_WEEKNO_ROW}")
+    """Six helper rows describing each day column.
+
+    The window start is a calendar week the user types; everything downstream
+    works from the position it resolves to, so the window behaves the same
+    either side of New Year.
+    """
     for i in range(L.DEEP_DAY_COLS):
         c = L.col(L.CD_FIRST_DAY_COL + i)
+        col = L.CD_FIRST_DAY_COL + i
         wk, day = divmod(i, L.WORKDAYS_PER_WEEK)
-        sun = sunday.format(c=c)
+        pos = f"{c}${L.CD_POS_ROW}"
+        # A position maps back to a date through the continuous absolute count.
+        sun = C.excel_week_sunday_formula("CfgYear", f"(CfgStartWeek+{pos}-1)")
 
-        ws.cell(row=L.CD_WEEKNO_ROW, column=L.CD_FIRST_DAY_COL + i,
-                value=f"=DeepStartWeek+{wk}")
-        d = ws.cell(row=L.CD_DATE_ROW, column=L.CD_FIRST_DAY_COL + i,
-                    value=f"={sun}+{day}")
+        ws.cell(row=L.CD_POS_ROW, column=col, value=f"={_deep_start_pos()}+{wk}")
+        d = ws.cell(row=L.CD_DATE_ROW, column=col, value=f"={sun}+{day}")
         d.number_format = "yyyy-mm-dd"
-        ws.cell(row=L.CD_HOLIDAY_ROW, column=L.CD_FIRST_DAY_COL + i,
+        ws.cell(row=L.CD_HOLIDAY_ROW, column=col,
                 value=f"=IF(COUNTIF(HolDates,{c}${L.CD_DATE_ROW})>0,1,0)")
-        ws.cell(row=L.CD_WORKDAYS_ROW, column=L.CD_FIRST_DAY_COL + i, value=(
+        ws.cell(row=L.CD_WORKDAYS_ROW, column=col, value=(
             f'={L.WORKDAYS_PER_WEEK}-COUNTIFS(HolDates,">="&{sun},'
             f'HolDates,"<="&{sun}+{L.WORKDAYS_PER_WEEK - 1})'))
-        ws.cell(row=L.CD_INWINDOW_ROW, column=L.CD_FIRST_DAY_COL + i, value=(
-            f'=IF(AND({wk}<DeepWeeks,{c}${L.CD_WEEKNO_ROW}>=CfgStartWeek,'
-            f'{c}${L.CD_WEEKNO_ROW}<=CfgStartWeek+CfgHorizon-1),1,0)'))
+        ws.cell(row=L.CD_INWINDOW_ROW, column=col, value=(
+            f'=IF(AND({wk}<DeepWeeks,{pos}>=1,{pos}<=CfgHorizon),1,0)'))
+        ws.cell(row=L.CD_LABEL_ROW, column=col,
+                value=f'=IFERROR(INDEX(CwLabel,{pos}),"")')
 
-    for row, label in [(L.CD_WEEKNO_ROW, "Week"), (L.CD_DATE_ROW, "Date"),
+    for row, label in [(L.CD_POS_ROW, "Position"), (L.CD_DATE_ROW, "Date"),
                        (L.CD_HOLIDAY_ROW, "Holiday?"),
                        (L.CD_WORKDAYS_ROW, "Work days in week"),
-                       (L.CD_INWINDOW_ROW, "In window?")]:
+                       (L.CD_INWINDOW_ROW, "In window?"), (L.CD_LABEL_ROW, "Label")]:
         ws.cell(row=row, column=1, value=label).font = S.FONT_NOTE

@@ -126,9 +126,19 @@ SUB_DERIVED_COLS = [S_ID, S_EFF_ASSIGNEE, S_EFFORT, S_KEY, S_RANK, S_CHECK]
 
 # --- CalcWeek sheet --------------------------------------------------------
 
-CW_ACTIVE_ROW = 1            # 1 where the week is inside the configured horizon
-CW_HDR_ROW = 2
-CW_FIRST_ROW = 3
+# Header rows. Three different numbers describe a week column and conflating
+# them is what produced "WW58": POS is the internal key used by every lookup and
+# comparison, WEEK is the real calendar week the user types and reads, and ABS
+# is a continuous count used only to get from a column to a date.
+CW_POS_ROW = 1               # 1..WEEK_COLS
+CW_ABS_ROW = 2               # CfgStartWeek + pos - 1, may exceed 52
+CW_SUN_ROW = 3               # Sunday opening the week
+CW_YEAR_ROW = 4              # calendar year the week belongs to
+CW_WEEK_ROW = 5              # calendar week number, wraps at the year boundary
+CW_ACTIVE_ROW = 6            # 1 where the week is inside the configured horizon
+CW_LABEL_ROW = 7             # display text, e.g. WW01 '27
+CW_HDR_ROW = 8
+CW_FIRST_ROW = 9
 CW_RANK = 1
 CW_SUBID = 2
 CW_ASSIGNEE = 3
@@ -147,13 +157,14 @@ CW_EQPWEEK_FIRST = CW_EQPWEEK_HDR + 1
 
 # --- CalcDay sheet ---------------------------------------------------------
 
-CD_WEEKNO_ROW = 1
+CD_POS_ROW = 1               # position into the week grid, not a week number
 CD_DATE_ROW = 2
 CD_HOLIDAY_ROW = 3
 CD_WORKDAYS_ROW = 4
 CD_INWINDOW_ROW = 5
-CD_HDR_ROW = 6
-CD_FIRST_ROW = 7
+CD_LABEL_ROW = 6
+CD_HDR_ROW = 7
+CD_FIRST_ROW = 8
 CD_RANK = 1
 CD_SUBID = 2
 CD_ASSIGNEE = 3

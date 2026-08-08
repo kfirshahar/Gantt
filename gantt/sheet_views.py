@@ -32,8 +32,8 @@ def build_gantt_high(ws) -> None:
 def _week_header(ws, row: int, last_col: int, first_labels: list[str]) -> None:
     S.header_row(ws, row, 1, first_labels, output=True)
     for i in range(L.WEEK_COLS):
-        cell = ws.cell(row=row, column=GH_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
-        cell.number_format = '"WW"0'
+        cell = ws.cell(row=row, column=GH_WEEK_COL + i,
+                       value=f"=INDEX(CwLabel,{i + 1})")
         cell.fill = S.FILL_OUTPUT_HDR
         cell.font = S.FONT_HDR
         cell.alignment = S.CENTER
@@ -69,8 +69,7 @@ def _assignee_load(ws, last_col: int) -> int:
                 f'=IF($A{used_row}="","",{L.sheet_ref(L.CALC_WEEK)}!{wc}{aw_row})'))
             avail = ws.cell(row=avail_row, column=c, value=(
                 f'=IF($A{used_row}="","",IFERROR(INDEX(CapGrid,'
-                f'MATCH($A{used_row},CapNames,0),MATCH({L.col(c)}${GH_LOAD_HDR},'
-                f'CapWeeks,0)),0))'))
+                f'MATCH($A{used_row},CapNames,0),{w + 1}),0))'))
             for cell in (used, avail):
                 cell.number_format = "0.0"
                 cell.alignment = S.CENTER
@@ -98,7 +97,7 @@ def _assignee_load(ws, last_col: int) -> int:
             bottom=Side(style="medium", color=S.INK))
 
     last = GH_LOAD_FIRST + 2 * L.MAX_ASSIGNEES - 1
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, GH_LOAD_HDR, last, GH_LOAD_HDR)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, GH_LOAD_HDR, last)
     return last
 
 
@@ -135,7 +134,7 @@ def _task_timeline(ws, start_row: int, last_col: int) -> int:
         f"{L.col(GH_WEEK_COL)}{first}:{L.col(last_col)}{last}",
         Rule(type="cellIs", operator="greaterThan", formula=["0"],
              dxf=DifferentialStyle(fill=S.FILL_BAR)))
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, hdr)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last)
     return last
 
 
@@ -168,7 +167,7 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
                 f'=IF($A{dem_row}="","",{L.sheet_ref(L.CALC_WEEK)}!{wc}{eq_row})'))
             have = ws.cell(row=sup_row, column=c, value=(
                 f'=IF($A{dem_row}="","",IFERROR(INDEX(EqpGrid,'
-                f'MATCH($A{dem_row},EqpNames,0),MATCH({L.col(c)}${hdr},EqpWeeks,0)),0))'))
+                f'MATCH($A{dem_row},EqpNames,0),{w + 1}),0))'))
             for cell in (need, have):
                 cell.number_format = "0"
                 cell.alignment = S.CENTER
@@ -183,7 +182,7 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
         ws.cell(row=dem_row, column=1).border = S.BORDER_ALL
 
     last = first + 2 * L.MAX_EQUIPMENT - 1
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, hdr)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last)
     return last
 
 
@@ -276,8 +275,7 @@ def _deep_headers(ws) -> None:
         src = L.col(L.CD_FIRST_DAY_COL + i)
         cd = L.sheet_ref(L.CALC_DAY)
 
-        week = ws.cell(row=GD_WEEK_ROW, column=c, value=f"={cd}!{src}${L.CD_WEEKNO_ROW}")
-        week.number_format = '"WW"0'
+        week = ws.cell(row=GD_WEEK_ROW, column=c, value=f"={cd}!{src}${L.CD_LABEL_ROW}")
         day = ws.cell(row=GD_DAY_ROW, column=c,
                       value=f'="{L.DAY_NAMES[i % L.WORKDAYS_PER_WEEK]}"')
         date = ws.cell(row=GD_DATE_ROW, column=c, value=f"={cd}!{src}${L.CD_DATE_ROW}")

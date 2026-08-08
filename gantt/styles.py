@@ -72,19 +72,24 @@ def mark_derived(cell) -> None:
 
 
 def grey_inactive_weeks(ws, first_col: int, last_col: int,
-                        first_row: int, last_row: int, header_row: int) -> None:
+                        first_row: int, last_row: int) -> None:
     """Dim week columns that fall outside the horizon set on Config.
 
     The columns are always present; this is what makes them read as switched
-    off rather than as weeks with no work in them.
+    off rather than as weeks with no work in them. The test reads CalcWeek's
+    active flag rather than comparing week numbers, which would misbehave once
+    the plan crosses into the next year.
     """
     from openpyxl.formatting.rule import Rule
     from openpyxl.styles.differential import DifferentialStyle
     from openpyxl.utils import get_column_letter
 
+    from . import layout as L
+
     first = get_column_letter(first_col)
+    flag = f"{L.sheet_ref(L.CALC_WEEK)}!{L.col(L.CW_FIRST_WEEK_COL)}${L.CW_ACTIVE_ROW}"
     ws.conditional_formatting.add(
         f"{first}{first_row}:{get_column_letter(last_col)}{last_row}",
         Rule(type="expression",
              dxf=DifferentialStyle(fill=FILL_WEEKEND, font=Font(color=MUTED)),
-             formula=[f"{first}${header_row}>CfgStartWeek+CfgHorizon-1"]))
+             formula=[f"{flag}=0"]))

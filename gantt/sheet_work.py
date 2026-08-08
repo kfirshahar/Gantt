@@ -60,18 +60,25 @@ def build_tasks(ws) -> None:
                 value=f'=IF($A{r}="","",COUNTIF(SubParent,$A{r}))')
         ws.cell(row=r, column=L.T_EFFORT,
                 value=f'=IF($A{r}="","",ROUND({effort},2))').number_format = "0.00"
-        ws.cell(row=r, column=L.T_CALC_START,
-                value=(f'=IF($A{r}="","",IF(SUM({span})=0,"",'
-                       f'SUMPRODUCT(MIN(({span}>0)*CwWeeks+({span}<=0)*9999))))')
-                ).number_format = '"WW"0'
-        ws.cell(row=r, column=L.T_CALC_END,
-                value=(f'=IF($A{r}="","",IF(SUM({span})=0,"",'
-                       f'SUMPRODUCT(MAX(({span}>0)*CwWeeks))))')
-                ).number_format = '"WW"0'
+        # Start and end are resolved as grid positions and then rendered through
+        # the shared label, so a task running into next year reads WW01 '27
+        # rather than a week number that does not exist.
+        start_pos = f'SUMPRODUCT(MIN(({span}>0)*CwPos+({span}<=0)*9999))'
+        end_pos = f'SUMPRODUCT(MAX(({span}>0)*CwPos))'
+        ws.cell(row=r, column=L.T_CALC_START, value=(
+            f'=IF($A{r}="","",IF(SUM({span})=0,"",'
+            f'IFERROR(INDEX(CwLabel,{start_pos}),"")))'))
+        ws.cell(row=r, column=L.T_CALC_END, value=(
+            f'=IF($A{r}="","",IF(SUM({span})=0,"",'
+            f'IFERROR(INDEX(CwLabel,{end_pos}),"")))'))
+
+        # A start week is valid only if it names one of the built columns *and*
+        # that column is inside the horizon.
+        pos = f'IFERROR(MATCH($H{r},CwWeeks,0),0)'
         ws.cell(row=r, column=L.T_CHECK, value=(
             f'=IF($A{r}="","",'
             f'IF(COUNTIF(SubParent,$A{r})=0,"⚠ no sub-tasks",'
-            f'IF(OR($H{r}<CfgStartWeek,$H{r}>CfgStartWeek+CfgHorizon-1),"⚠ start outside horizon",'
+            f'IF(OR({pos}=0,{pos}>CfgHorizon),"⚠ start outside horizon",'
             f'IF(SUM({span})=0,"⚠ not scheduled",'
             f'IF(ROUND(SUM({span}),4)<ROUND({effort},4),"⚠ overruns horizon","ok")))))'))
 

@@ -31,6 +31,7 @@ These were settled during brainstorming and are not open questions.
 | Parent column | Repeats hidden, not merged | Looks merged; sorting, filtering and formulas all keep working |
 | Work week | Sunday–Thursday | Five working days, Friday and Saturday are weekend |
 | Week numbering | Sunday-start, week 1 contains Jan 1 | Puts the five working days contiguously at the front of each numbered week |
+| Week identity | Position internally, calendar week on screen | A plan crossing New Year labels itself correctly instead of counting to WW58 |
 | Deep-dive scope | Day columns windowed | Start week + week count inputs, defaulting to project start |
 | Horizon length | 26 columns built, Config sets how many are active | Lengthening a plan up to 26 weeks needs no regeneration |
 | Calendar detail | Weeks tab + holiday list | Available days per assignee per week, plus company-wide off dates |
@@ -74,6 +75,27 @@ Pre-built row counts: 30 tasks, 600 sub-tasks, 10 assignees, 10 equipment types,
 At this scale the heaviest grid is 600 × 12 ≈ 7,200 cells. Row-filtering the
 deep-dive was designed and then dropped as unnecessary — day columns are
 windowed, sub-task rows are not.
+
+### Three numbers describe a week
+
+Conflating them produced a header reading `WW58`. A 26-week plan from WW33 runs
+into the next year, so the default dataset already crosses the boundary:
+
+- **Position** (1…26) — the internal key. Every comparison and capacity lookup
+  uses it, which also removes the need to match on a header at all: column
+  positions are known when the file is generated, so lookups index straight into
+  the grid.
+- **Calendar week and year** — derived from the column's actual Sunday. A week
+  belongs to the year containing its last day, because week 1 is the week
+  containing 1 January; a week straddling New Year therefore contains that
+  January the 1st and belongs to the later year. 52- and 53-week years fall out
+  of this for free.
+- **Absolute count** (may exceed 52) — used only to get from a column to a date.
+
+`Earliest start WW` on `Tasks` is a real calendar week: typing 2 for a plan
+reaching into the next year resolves to WW02 of that year by matching, and a week
+that names no built column is flagged rather than landing silently in week one.
+Headers read `WW04`, or `WW01 '27` once the year changes.
 
 ## Architecture
 

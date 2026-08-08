@@ -12,8 +12,7 @@ def _week_headers(ws, row: int, first_col: int, count: int, output: bool = False
     """Week-number header cells driven by Config, so shifting the project
     start week relabels every grid in the workbook at once."""
     for i in range(count):
-        cell = ws.cell(row=row, column=first_col + i, value=f"=CfgStartWeek+{i}")
-        cell.number_format = '"WW"0'
+        cell = ws.cell(row=row, column=first_col + i, value=f"=INDEX(CwLabel,{i + 1})")
         cell.fill = S.FILL_OUTPUT_HDR if output else S.FILL_INPUT_HDR
         cell.font = S.FONT_HDR
         cell.alignment = S.CENTER
@@ -130,7 +129,7 @@ def build_capacity(ws) -> None:
         S.mark_derived(total)
 
     S.grey_inactive_weeks(ws, L.GRID_FIRST_WEEK_COL, N.LAST_WEEK_COL,
-                          1, N.LAST_ASG_ROW, 1)
+                          1, N.LAST_ASG_ROW)
     S.widths(ws, {"A": 18, L.col(total_col): 9})
     ws.freeze_panes = "B2"
     r = N.LAST_ASG_ROW + 2
@@ -158,7 +157,7 @@ def build_equipment(ws) -> None:
             cell.border = S.BORDER_ALL
 
     S.grey_inactive_weeks(ws, L.GRID_FIRST_WEEK_COL, N.LAST_WEEK_COL,
-                          1, N.LAST_EQP_ROW, 1)
+                          1, N.LAST_EQP_ROW)
     S.widths(ws, {"A": 18})
     ws.freeze_panes = "B2"
     r = N.LAST_EQP_ROW + 2
