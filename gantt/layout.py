@@ -8,6 +8,7 @@ from openpyxl.utils import get_column_letter
 
 # --- Sheet names -----------------------------------------------------------
 
+GUIDE = "Guide"
 CONFIG = "Config"
 ASSIGNEES = "Assignees"
 CAPACITY = "Capacity"
@@ -20,7 +21,7 @@ GANTT_DEEP = "Gantt-Deep"
 CALC_WEEK = "CalcWeek"
 CALC_DAY = "CalcDay"
 
-INPUT_SHEETS = [CONFIG, ASSIGNEES, CAPACITY, EQUIPMENT, HOLIDAYS, TASKS, SUBTASKS]
+INPUT_SHEETS = [GUIDE, CONFIG, ASSIGNEES, CAPACITY, EQUIPMENT, HOLIDAYS, TASKS, SUBTASKS]
 OUTPUT_SHEETS = [GANTT_HIGH, GANTT_DEEP]
 HIDDEN_SHEETS = [CALC_WEEK, CALC_DAY]
 

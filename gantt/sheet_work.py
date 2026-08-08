@@ -123,9 +123,11 @@ def build_subtasks(ws) -> None:
         parent_row = f"MATCH($A{r},TaskIDs,0)"
         ws.cell(row=r, column=L.S_ID,
                 value=f'=IF($A{r}="","",$A{r}&"."&TEXT({idx},"00"))')
+        # `&""` matters: INDEX on an empty default-assignee cell returns 0, which
+        # would display as a literal 0 rather than reading as "nobody set yet".
         ws.cell(row=r, column=L.S_EFF_ASSIGNEE, value=(
             f'=IF($A{r}="","",IF($E{r}<>"",$E{r},'
-            f'IFERROR(INDEX(TaskDefAsg,{parent_row}),"")))'))
+            f'IFERROR(INDEX(TaskDefAsg,{parent_row})&"","")))'))
         ws.cell(row=r, column=L.S_EFFORT, value=(
             f'=IF(OR($A{r}="",$D{r}="",$F{r}=""),"",'
             f'IFERROR(INDEX(CplxDays,MATCH($D{r},CplxNames,0))'

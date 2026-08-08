@@ -42,8 +42,13 @@ See `docs/superpowers/specs/` for the full design and the decisions behind it.
 
 ## Layout
 
+The workbook opens on a **Guide** tab explaining the fill order, how scheduling
+works, what Rank is, and what each Check message means. It lives inside the file
+so it travels with a copy.
+
 | Tab | Role |
 |---|---|
+| `Guide` | How to use the file |
 | `Gantt-High` | Assignee load, task timeline, equipment, checks — read-only |
 | `Gantt-Deep` | Sub-task × day view, windowed — read-only but for the two window cells |
 | `Tasks`, `Sub-Tasks` | What needs doing |

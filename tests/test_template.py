@@ -308,6 +308,64 @@ def test_task_beyond_horizon_is_flagged_not_silently_dropped(built, tmp_path_fac
     assert "outside horizon" in check, check
 
 
+def test_guide_is_the_first_tab(formulas):
+    assert formulas.sheetnames[0] == L.GUIDE
+
+
+def test_every_subtask_check_condition_fires(built, tmp_path_factory):
+    """Each Check message must be reachable, and a fresh row must self-populate.
+
+    The dropdowns stop most bad input at the door, so these fire mainly on rows
+    part-way through being filled in — which is exactly when they are useful.
+    """
+    if not Path(SOFFICE).exists():
+        pytest.skip("LibreOffice not installed")
+
+    wb = load_workbook(built)
+    st, tasks = wb[L.SUBTASKS], wb[L.TASKS]
+    first = L.SUB_FIRST_ROW
+
+    st.cell(row=first, column=L.S_COMPLEXITY).value = None          # no complexity
+    st.cell(row=first + 1, column=L.S_PARENT).value = "T-99"        # unknown parent
+    tasks.cell(row=L.TASK_FIRST_ROW, column=L.T_DEF_ASSIGNEE).value = None
+    st.cell(row=first + 3, column=L.S_ASSIGNEE).value = "Carol"     # zero proficiency
+    wb[L.ASSIGNEES].cell(row=L.GRID_FIRST_DATA_ROW + 2, column=2).value = 0
+
+    # T-02, not T-01: T-01's default assignee was cleared just above.
+    fresh = first + 40                                             # a brand-new row
+    st.cell(row=fresh, column=L.S_PARENT).value = "T-02"
+    st.cell(row=fresh, column=L.S_NAME).value = "Newly added step"
+    st.cell(row=fresh, column=L.S_COMPLEXITY).value = "Medium"
+
+    got = _recalc(wb, tmp_path_factory, "checks")[L.SUBTASKS]
+
+    def check(row):
+        return got.cell(row=row, column=L.S_CHECK).value
+
+    assert "no complexity" in check(first)
+    assert "unknown parent" in check(first + 1)
+    assert "no assignee" in check(first + 2)
+    assert "check proficiency" in check(first + 3)
+
+    # A row typed in below the demo data must compute without anything copied down.
+    assert check(fresh) == "ok"
+    assert got.cell(row=fresh, column=L.S_ID).value.startswith("T-02.")
+    assert got.cell(row=fresh, column=L.S_RANK).value > 0
+
+
+def test_effective_assignee_is_blank_not_zero(built, tmp_path_factory):
+    """An unset default assignee must read as empty, not as a literal 0."""
+    if not Path(SOFFICE).exists():
+        pytest.skip("LibreOffice not installed")
+
+    wb = load_workbook(built)
+    wb[L.TASKS].cell(row=L.TASK_FIRST_ROW, column=L.T_DEF_ASSIGNEE).value = None
+    got = _recalc(wb, tmp_path_factory, "blankasg")[L.SUBTASKS]
+
+    value = got.cell(row=L.SUB_FIRST_ROW, column=L.S_EFF_ASSIGNEE).value
+    assert value in (None, ""), repr(value)
+
+
 def test_week_labels_wrap_at_the_year_boundary(built, tmp_path_factory):
     """WW33 + 26 weeks runs into 2027; column 21 must read WW01 '27, not WW53."""
     if not Path(SOFFICE).exists():
