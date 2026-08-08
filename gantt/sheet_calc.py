@@ -39,7 +39,14 @@ def build_calc_week(ws) -> None:
     hdr, first, last = L.CW_HDR_ROW, L.CW_FIRST_ROW, N.CW_LAST_ROW
     S.header_row(ws, hdr, 1,
                  ["Rank", "Sub ID", "Assignee", "Effort", "Start WW", "Parent"])
-    for i in range(L.HORIZON_WEEKS):
+    ws.cell(row=L.CW_ACTIVE_ROW, column=1, value="Active?").font = S.FONT_NOTE
+    for i in range(L.WEEK_COLS):
+        wc = L.col(L.CW_FIRST_WEEK_COL + i)
+        # Weeks past the configured horizon are switched off here, which is what
+        # lets Config's Horizon cell lengthen or shorten the plan without the
+        # workbook being regenerated.
+        ws.cell(row=L.CW_ACTIVE_ROW, column=L.CW_FIRST_WEEK_COL + i,
+                value=f"=IF({wc}${L.CW_HDR_ROW}<=CfgStartWeek+CfgHorizon-1,1,0)")
         c = ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
         c.number_format = '"WW"0'
         c.fill = S.FILL_INPUT_HDR
@@ -50,7 +57,7 @@ def build_calc_week(ws) -> None:
         ws.cell(row=r, column=L.CW_EFFORT,
                 value=f'=IF($B{r}="",0,{_effort_expr(r)})').number_format = "0.00"
 
-        for i in range(L.HORIZON_WEEKS):
+        for i in range(L.WEEK_COLS):
             wc = L.col(L.CW_FIRST_WEEK_COL + i)
             prior = "0" if i == 0 else f"SUM($G{r}:{L.col(L.CW_FIRST_WEEK_COL + i - 1)}{r})"
             cap = (f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),"
@@ -58,8 +65,9 @@ def build_calc_week(ws) -> None:
             claimed = ("0" if r == first else
                        f"SUMIF($C${first}:$C{r - 1},$C{r},{wc}${first}:{wc}{r - 1})")
             ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + i, value=(
-                f'=IF($B{r}="",0,IF({wc}${hdr}<$E{r},0,'
-                f'MAX(0,MIN($D{r}-{prior},{cap}-{claimed}))))')).number_format = "0.00"
+                f'=IF($B{r}="",0,IF({wc}${L.CW_ACTIVE_ROW}=0,0,'
+                f'IF({wc}${hdr}<$E{r},0,'
+                f'MAX(0,MIN($D{r}-{prior},{cap}-{claimed})))))')).number_format = "0.00"
 
     _task_rollup(ws)
     _assignee_rollup(ws)
@@ -71,7 +79,7 @@ def _task_rollup(ws) -> None:
     """One row per task: that task's allocated days in each week."""
     hdr, first = L.CW_TASKWEEK_HDR, L.CW_TASKWEEK_FIRST
     S.header_row(ws, hdr, 1, ["Task ID (rollup)"])
-    for i in range(L.HORIZON_WEEKS):
+    for i in range(L.WEEK_COLS):
         ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
 
     for i in range(L.MAX_TASKS):
@@ -80,7 +88,7 @@ def _task_rollup(ws) -> None:
         ws.cell(row=r, column=1, value=(
             f'=IF({L.sheet_ref(L.TASKS)}!A{task_row}="","",'
             f'{L.sheet_ref(L.TASKS)}!A{task_row})'))
-        for w in range(L.HORIZON_WEEKS):
+        for w in range(L.WEEK_COLS):
             wc = L.col(L.CW_FIRST_WEEK_COL + w)
             ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + w, value=(
                 f'=IF($A{r}="",0,SUMIF(CwParent,$A{r},'
@@ -91,7 +99,7 @@ def _assignee_rollup(ws) -> None:
     """One row per assignee: days that person is loaded with each week."""
     hdr, first = L.CW_AWWEEK_HDR, L.CW_AWWEEK_FIRST
     S.header_row(ws, hdr, 1, ["Assignee (load)"])
-    for i in range(L.HORIZON_WEEKS):
+    for i in range(L.WEEK_COLS):
         ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
 
     for i in range(L.MAX_ASSIGNEES):
@@ -100,7 +108,7 @@ def _assignee_rollup(ws) -> None:
         ws.cell(row=r, column=1, value=(
             f'=IF({L.sheet_ref(L.ASSIGNEES)}!A{src}="","",'
             f'{L.sheet_ref(L.ASSIGNEES)}!A{src})'))
-        for w in range(L.HORIZON_WEEKS):
+        for w in range(L.WEEK_COLS):
             wc = L.col(L.CW_FIRST_WEEK_COL + w)
             ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + w, value=(
                 f'=IF($A{r}="",0,SUMIF(CwAssignee,$A{r},'
@@ -115,7 +123,7 @@ def _equipment_demand(ws) -> None:
     """
     hdr, first = L.CW_EQPWEEK_HDR, L.CW_EQPWEEK_FIRST
     S.header_row(ws, hdr, 1, ["Equipment (demand)"])
-    for i in range(L.HORIZON_WEEKS):
+    for i in range(L.WEEK_COLS):
         ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
 
     for i in range(L.MAX_EQUIPMENT):
@@ -124,7 +132,7 @@ def _equipment_demand(ws) -> None:
         ws.cell(row=r, column=1, value=(
             f'=IF({L.sheet_ref(L.EQUIPMENT)}!A{eq_row}="","",'
             f'{L.sheet_ref(L.EQUIPMENT)}!A{eq_row})'))
-        for w in range(L.HORIZON_WEEKS):
+        for w in range(L.WEEK_COLS):
             wc = L.col(L.CW_FIRST_WEEK_COL + w)
             tw_col = (f"{wc}${L.CW_TASKWEEK_FIRST}:{wc}${N.TW_LAST_ROW}")
             ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + w, value=(

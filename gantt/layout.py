@@ -32,7 +32,10 @@ MAX_TASKS = 30
 MAX_SUBTASKS = 600
 MAX_HOLIDAYS = 50
 
-HORIZON_WEEKS = 12          # week columns built across the workbook
+# Week columns physically built into every grid. This is the ceiling; how many
+# are actually *active* is set by the Horizon cell on Config at runtime, so
+# lengthening a plan up to this many weeks needs no regeneration.
+WEEK_COLS = 26
 MAX_DEEP_WEEKS = 8          # soft cap on the deep-dive window
 WORKDAYS_PER_WEEK = 5       # Sunday..Thursday
 DEEP_DAY_COLS = MAX_DEEP_WEEKS * WORKDAYS_PER_WEEK
@@ -123,6 +126,7 @@ SUB_DERIVED_COLS = [S_ID, S_EFF_ASSIGNEE, S_EFFORT, S_KEY, S_RANK, S_CHECK]
 
 # --- CalcWeek sheet --------------------------------------------------------
 
+CW_ACTIVE_ROW = 1            # 1 where the week is inside the configured horizon
 CW_HDR_ROW = 2
 CW_FIRST_ROW = 3
 CW_RANK = 1

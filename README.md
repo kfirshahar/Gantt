@@ -52,6 +52,14 @@ See `docs/superpowers/specs/` for the full design and the decisions behind it.
 | `Config` | Complexity → base days, priorities, horizon |
 
 Grey italic columns are computed — typing in them breaks the schedule.
+`CalcWeek` and `CalcDay` are hidden: right-click a sheet tab → *Unhide*.
+
+## Changing the horizon
+
+26 week columns are built into the file; `Horizon (weeks)` on `Config` sets how
+many are active. Weeks past it are switched off and greyed out, so going from 12
+to 16 weeks is one cell edit — no regeneration. Beyond 26, raise `WEEK_COLS` in
+`gantt/layout.py` and rebuild.
 
 ## Conventions
 

@@ -24,8 +24,9 @@ class SubTask:
     daily: dict[str, float] = field(default_factory=dict)
 
 
-def _weeks() -> list[int]:
-    return [demo.START_WEEK + i for i in range(demo.HORIZON)]
+def _weeks(horizon: int | None = None) -> list[int]:
+    """The active weeks. `horizon` mirrors the Horizon cell on Config."""
+    return [demo.START_WEEK + i for i in range(horizon or demo.HORIZON)]
 
 
 def _lookups():
@@ -60,10 +61,10 @@ def build_subtasks() -> list[SubTask]:
     return rows
 
 
-def schedule_weekly(rows: list[SubTask]) -> list[SubTask]:
+def schedule_weekly(rows: list[SubTask], horizon: int | None = None) -> list[SubTask]:
     """Spill-over across weeks, in rank order, against assignee capacity."""
     _, _, _, tasks, _ = _lookups()
-    weeks = _weeks()
+    weeks = _weeks(horizon)
     used: dict[tuple[str, int], float] = {}
 
     for row in sorted(rows, key=lambda s: s.rank):
@@ -87,10 +88,11 @@ def _holidays() -> set:
     return {datetime.strptime(d, "%Y-%m-%d").date() for d, _ in demo.HOLIDAYS}
 
 
-def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int) -> list[SubTask]:
+def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int,
+                   horizon: int | None = None) -> list[SubTask]:
     """Same algorithm at day granularity across the visible window."""
     _, _, _, tasks, _ = _lookups()
-    weeks = _weeks()
+    weeks = _weeks(horizon)
     holidays = _holidays()
     used: dict[tuple[str, str], float] = {}
 
@@ -124,31 +126,32 @@ def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int) ->
     return rows
 
 
-def solve(window_start: int | None = None, window_weeks: int = 4) -> list[SubTask]:
-    rows = schedule_weekly(build_subtasks())
-    return schedule_daily(rows, window_start or demo.START_WEEK, window_weeks)
+def solve(window_start: int | None = None, window_weeks: int = 4,
+          horizon: int | None = None) -> list[SubTask]:
+    rows = schedule_weekly(build_subtasks(), horizon)
+    return schedule_daily(rows, window_start or demo.START_WEEK, window_weeks, horizon)
 
 
-def assignee_load(rows: list[SubTask]) -> dict[str, dict[int, float]]:
-    out = {name: {w: 0.0 for w in _weeks()} for name, _ in demo.ASSIGNEES}
+def assignee_load(rows: list[SubTask], horizon: int | None = None) -> dict[str, dict[int, float]]:
+    out = {name: {w: 0.0 for w in _weeks(horizon)} for name, _ in demo.ASSIGNEES}
     for row in rows:
         for w, v in row.weekly.items():
             out[row.assignee][w] += v
     return out
 
 
-def task_load(rows: list[SubTask]) -> dict[str, dict[int, float]]:
-    out = {t[0]: {w: 0.0 for w in _weeks()} for t in demo.TASKS}
+def task_load(rows: list[SubTask], horizon: int | None = None) -> dict[str, dict[int, float]]:
+    out = {t[0]: {w: 0.0 for w in _weeks(horizon)} for t in demo.TASKS}
     for row in rows:
         for w, v in row.weekly.items():
             out[row.parent][w] += v
     return out
 
 
-def equipment_demand(rows: list[SubTask]) -> dict[str, dict[int, int]]:
+def equipment_demand(rows: list[SubTask], horizon: int | None = None) -> dict[str, dict[int, int]]:
     tasks = {t[0]: t for t in demo.TASKS}
-    loads = task_load(rows)
-    out = {name: {w: 0 for w in _weeks()} for name in demo.EQUIPMENT}
+    loads = task_load(rows, horizon)
+    out = {name: {w: 0 for w in _weeks(horizon)} for name in demo.EQUIPMENT}
     for tid, per_week in loads.items():
         equip = tasks[tid][5]
         for w, v in per_week.items():

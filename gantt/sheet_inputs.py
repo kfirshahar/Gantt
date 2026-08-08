@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from openpyxl.styles import Alignment
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from . import demo, layout as L, names as N, styles as S
 
@@ -35,8 +36,22 @@ def build_config(ws) -> None:
         cell.number_format = fmt
         cell.border = S.BORDER_ALL
 
-    note = ws.cell(row=L.CFG_HORIZON_ROW, column=3,
-                   value=f"Grids are pre-built for {L.HORIZON_WEEKS} weeks.")
+    # The horizon is live: weeks past it switch off across every grid. It cannot
+    # exceed the number of columns actually built, so the cell is bounded rather
+    # than left free to be set to a value the workbook cannot honour.
+    horizon = ws.cell(row=L.CFG_HORIZON_ROW, column=2)
+    horizon.fill = S.FILL_WARN
+    dv = DataValidation(type="whole", operator="between",
+                        formula1=1, formula2=L.WEEK_COLS, allow_blank=False)
+    dv.errorTitle = "Beyond the built grid"
+    dv.error = (f"The horizon must be between 1 and {L.WEEK_COLS} weeks. "
+                f"To go further, raise WEEK_COLS in gantt/layout.py and rebuild.")
+    ws.add_data_validation(dv)
+    dv.add(horizon)
+
+    note = ws.cell(row=L.CFG_HORIZON_ROW, column=3, value=(
+        f"Live — change it and every grid follows. Max {L.WEEK_COLS} "
+        f"(the columns built into this file)."))
     note.font = S.FONT_NOTE
 
     S.header_row(ws, L.CFG_COMPLEXITY_HDR, 1, ["Complexity", "Base days"])
@@ -87,13 +102,13 @@ def _linked_name_column(ws, source_sheet: str, last_row: int) -> None:
 
 def build_capacity(ws) -> None:
     S.header_row(ws, 1, 1, ["Assignee"])
-    _week_headers(ws, 1, L.GRID_FIRST_WEEK_COL, L.HORIZON_WEEKS)
+    _week_headers(ws, 1, L.GRID_FIRST_WEEK_COL, L.WEEK_COLS)
     _linked_name_column(ws, L.ASSIGNEES, N.LAST_ASG_ROW)
 
     by_name = {name: demo.CAPACITY.get(name, []) for name, _ in demo.ASSIGNEES}
     for i, (name, _) in enumerate(demo.ASSIGNEES):
         r = L.GRID_FIRST_DATA_ROW + i
-        for w in range(L.HORIZON_WEEKS):
+        for w in range(L.WEEK_COLS):
             values = by_name[name]
             if w < len(values):
                 ws.cell(row=r, column=L.GRID_FIRST_WEEK_COL + w, value=values[w])
@@ -114,6 +129,8 @@ def build_capacity(ws) -> None:
         total.border = S.BORDER_ALL
         S.mark_derived(total)
 
+    S.grey_inactive_weeks(ws, L.GRID_FIRST_WEEK_COL, N.LAST_WEEK_COL,
+                          1, N.LAST_ASG_ROW, 1)
     S.widths(ws, {"A": 18, L.col(total_col): 9})
     ws.freeze_panes = "B2"
     r = N.LAST_ASG_ROW + 2
@@ -124,12 +141,12 @@ def build_capacity(ws) -> None:
 
 def build_equipment(ws) -> None:
     S.header_row(ws, 1, 1, ["Equipment type"])
-    _week_headers(ws, 1, L.GRID_FIRST_WEEK_COL, L.HORIZON_WEEKS)
+    _week_headers(ws, 1, L.GRID_FIRST_WEEK_COL, L.WEEK_COLS)
 
     for i, (name, units) in enumerate(demo.EQUIPMENT.items()):
         r = L.GRID_FIRST_DATA_ROW + i
         ws.cell(row=r, column=1, value=name)
-        for w in range(min(L.HORIZON_WEEKS, len(units))):
+        for w in range(min(L.WEEK_COLS, len(units))):
             ws.cell(row=r, column=L.GRID_FIRST_WEEK_COL + w, value=units[w])
 
     for r in range(L.GRID_FIRST_DATA_ROW, N.LAST_EQP_ROW + 1):
@@ -140,6 +157,8 @@ def build_equipment(ws) -> None:
             cell.alignment = S.CENTER
             cell.border = S.BORDER_ALL
 
+    S.grey_inactive_weeks(ws, L.GRID_FIRST_WEEK_COL, N.LAST_WEEK_COL,
+                          1, N.LAST_EQP_ROW, 1)
     S.widths(ws, {"A": 18})
     ws.freeze_panes = "B2"
     r = N.LAST_EQP_ROW + 2

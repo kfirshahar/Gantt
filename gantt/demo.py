@@ -18,18 +18,19 @@ ASSIGNEES = [
     ("Carol", 0.8),
 ]
 
-# Available days per assignee per week, WW33..WW44. Deliberately uneven:
-# Bob takes WW37 off entirely, Carol runs at four days a week.
+# Available days per assignee per week from WW33. Deliberately uneven: Bob takes
+# WW37 off entirely, Carol runs at four days a week. Filled out to WEEK_COLS so
+# that raising the Horizon on Config immediately has capacity to schedule into.
 CAPACITY = {
-    "Alice": [5, 5, 4.5, 5, 5, 5, 3, 5, 5, 5, 4, 5],
-    "Bob":   [5, 5, 5,   5, 0, 5, 5, 5, 5, 4, 5, 5],
-    "Carol": [4, 4, 4,   4, 4, 4, 4, 3, 4, 4, 4, 4],
+    "Alice": [5, 5, 4.5, 5, 5, 5, 3, 5, 5, 5, 4, 5] + [5] * 14,
+    "Bob":   [5, 5, 5,   5, 0, 5, 5, 5, 5, 4, 5, 5] + [5] * 14,
+    "Carol": [4, 4, 4,   4, 4, 4, 4, 3, 4, 4, 4, 4] + [4] * 14,
 }
 
 # Units available per equipment type per week. Rig-A dips to one unit in WW35.
 EQUIPMENT = {
-    "Rig-A": [2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2],
-    "Rig-B": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    "Rig-A": [2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2] + [2] * 14,
+    "Rig-B": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] + [1] * 14,
 }
 
 # Example dates only — replace with your own calendar before planning against it.

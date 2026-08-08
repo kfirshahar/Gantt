@@ -17,21 +17,21 @@ def build_gantt_high(ws) -> None:
     S.title(ws, "Gantt — high level",
             "Read-only. Weeks run across; every figure is in work days.")
 
-    last_week_col = GH_WEEK_COL + L.HORIZON_WEEKS - 1
+    last_week_col = GH_WEEK_COL + L.WEEK_COLS - 1
     load_last = _assignee_load(ws, last_week_col)
     timeline_last = _task_timeline(ws, load_last + 2, last_week_col)
     equip_last = _equipment_block(ws, timeline_last + 2, last_week_col)
     _checks(ws, equip_last + 2)
 
-    S.widths(ws, {"A": 26, "B": 9})
-    for i in range(L.HORIZON_WEEKS):
+    S.widths(ws, {"A": 38, "B": 9})
+    for i in range(L.WEEK_COLS):
         ws.column_dimensions[L.col(GH_WEEK_COL + i)].width = 8
     ws.freeze_panes = L.col(GH_WEEK_COL) + str(GH_LOAD_FIRST)
 
 
 def _week_header(ws, row: int, last_col: int, first_labels: list[str]) -> None:
     S.header_row(ws, row, 1, first_labels, output=True)
-    for i in range(L.HORIZON_WEEKS):
+    for i in range(L.WEEK_COLS):
         cell = ws.cell(row=row, column=GH_WEEK_COL + i, value=f"=CfgStartWeek+{i}")
         cell.number_format = '"WW"0'
         cell.fill = S.FILL_OUTPUT_HDR
@@ -62,7 +62,7 @@ def _assignee_load(ws, last_col: int) -> int:
         ws.cell(row=avail_row, column=2,
                 value=f'=IF($A{used_row}="","","Avail")').font = S.FONT_NOTE
 
-        for w in range(L.HORIZON_WEEKS):
+        for w in range(L.WEEK_COLS):
             c = GH_WEEK_COL + w
             wc = L.col(L.CW_FIRST_WEEK_COL + w)
             used = ws.cell(row=used_row, column=c, value=(
@@ -97,7 +97,9 @@ def _assignee_load(ws, last_col: int) -> int:
             top=Side(style="thin", color="D2D6DC"),
             bottom=Side(style="medium", color=S.INK))
 
-    return GH_LOAD_FIRST + 2 * L.MAX_ASSIGNEES - 1
+    last = GH_LOAD_FIRST + 2 * L.MAX_ASSIGNEES - 1
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, GH_LOAD_HDR, last, GH_LOAD_HDR)
+    return last
 
 
 def _task_timeline(ws, start_row: int, last_col: int) -> int:
@@ -117,7 +119,7 @@ def _task_timeline(ws, start_row: int, last_col: int) -> int:
         ws.cell(row=r, column=2, value=(
             f'=IF({t}!A{task_row}="","",{t}!D{task_row})')).alignment = S.CENTER
 
-        for w in range(L.HORIZON_WEEKS):
+        for w in range(L.WEEK_COLS):
             wc = L.col(L.CW_FIRST_WEEK_COL + w)
             cell = ws.cell(row=r, column=GH_WEEK_COL + w, value=(
                 f'=IF($A{r}="","",IF({L.sheet_ref(L.CALC_WEEK)}!{wc}{tw_row}=0,"",'
@@ -133,6 +135,7 @@ def _task_timeline(ws, start_row: int, last_col: int) -> int:
         f"{L.col(GH_WEEK_COL)}{first}:{L.col(last_col)}{last}",
         Rule(type="cellIs", operator="greaterThan", formula=["0"],
              dxf=DifferentialStyle(fill=S.FILL_BAR)))
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, hdr)
     return last
 
 
@@ -158,7 +161,7 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
         ws.cell(row=sup_row, column=2,
                 value=f'=IF($A{dem_row}="","","Have")').font = S.FONT_NOTE
 
-        for w in range(L.HORIZON_WEEKS):
+        for w in range(L.WEEK_COLS):
             c = GH_WEEK_COL + w
             wc = L.col(L.CW_FIRST_WEEK_COL + w)
             need = ws.cell(row=dem_row, column=c, value=(
@@ -179,7 +182,9 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
                      f'{L.col(GH_WEEK_COL)}{dem_row}>{L.col(GH_WEEK_COL)}{sup_row})']))
         ws.cell(row=dem_row, column=1).border = S.BORDER_ALL
 
-    return first + 2 * L.MAX_EQUIPMENT - 1
+    last = first + 2 * L.MAX_EQUIPMENT - 1
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, hdr)
+    return last
 
 
 def _checks(ws, start_row: int) -> None:

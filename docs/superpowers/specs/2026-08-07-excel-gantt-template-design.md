@@ -32,6 +32,7 @@ These were settled during brainstorming and are not open questions.
 | Work week | Sunday–Thursday | Five working days, Friday and Saturday are weekend |
 | Week numbering | Sunday-start, week 1 contains Jan 1 | Puts the five working days contiguously at the front of each numbered week |
 | Deep-dive scope | Day columns windowed | Start week + week count inputs, defaulting to project start |
+| Horizon length | 26 columns built, Config sets how many are active | Lengthening a plan up to 26 weeks needs no regeneration |
 | Calendar detail | Weeks tab + holiday list | Available days per assignee per week, plus company-wide off dates |
 
 ### Merged parent column
@@ -47,7 +48,25 @@ per group. Visually identical to a merge; nothing breaks.
 - ~30 parent tasks, 1–20 sub-tasks each (~600 sub-tasks)
 - 3–10 assignees
 - 2–10 equipment types
-- 12-week horizon (extendable)
+- 26 week columns built; horizon defaults to 12 and is set at runtime
+
+### The horizon is live, within a built ceiling
+
+Excel 2016 cannot grow a grid on demand, so the number of week columns is fixed
+when the file is generated. Making `CfgHorizon` merely *label* that count turned
+out to be a trap: raising it widened the range the "start outside horizon" check
+accepts while no capacity columns existed for the new weeks, so a task placed
+there reported "not scheduled" and its effort vanished into the unfit-work
+total — the one check that should have caught it was the check being disabled.
+
+The resolution is to build more columns than are typically needed (26, six
+months) and have `CfgHorizon` gate which are **active**. A helper row on
+`CalcWeek` marks each column 1 or 0, allocation is forced to zero where the flag
+is 0, and conditional formatting greys the inactive columns everywhere they
+appear. Changing 12 to 16 is then a single cell edit. The cell carries data
+validation bounded to `WEEK_COLS`, so it cannot be set to a value the workbook
+cannot honour; going beyond 26 means raising `WEEK_COLS` in `gantt/layout.py`
+and regenerating.
 
 Pre-built row counts: 30 tasks, 600 sub-tasks, 10 assignees, 10 equipment types,
 50 holidays.

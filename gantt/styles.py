@@ -69,3 +69,22 @@ def widths(ws, mapping: dict) -> None:
 def mark_derived(cell) -> None:
     cell.font = FONT_DERIVED
     cell.fill = FILL_DERIVED
+
+
+def grey_inactive_weeks(ws, first_col: int, last_col: int,
+                        first_row: int, last_row: int, header_row: int) -> None:
+    """Dim week columns that fall outside the horizon set on Config.
+
+    The columns are always present; this is what makes them read as switched
+    off rather than as weeks with no work in them.
+    """
+    from openpyxl.formatting.rule import Rule
+    from openpyxl.styles.differential import DifferentialStyle
+    from openpyxl.utils import get_column_letter
+
+    first = get_column_letter(first_col)
+    ws.conditional_formatting.add(
+        f"{first}{first_row}:{get_column_letter(last_col)}{last_row}",
+        Rule(type="expression",
+             dxf=DifferentialStyle(fill=FILL_WEEKEND, font=Font(color=MUTED)),
+             formula=[f"{first}${header_row}>CfgStartWeek+CfgHorizon-1"]))

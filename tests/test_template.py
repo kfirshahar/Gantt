@@ -226,6 +226,87 @@ def test_deep_dive_sums_to_high_level(values, solved):
             assert abs(daily - s.weekly[week]) < TOL, f"{s.parent}.{s.index} {week}"
 
 
+def test_weeks_past_the_horizon_are_switched_off(values):
+    """Columns exist out to WEEK_COLS but must be inert beyond the horizon."""
+    ws = values[L.CALC_WEEK]
+    assert L.WEEK_COLS > demo.HORIZON, "no inactive columns to test"
+
+    for i in range(L.WEEK_COLS):
+        col = L.CW_FIRST_WEEK_COL + i
+        active = ws.cell(row=L.CW_ACTIVE_ROW, column=col).value
+        assert active == (1 if i < demo.HORIZON else 0), f"week index {i}"
+        if i >= demo.HORIZON:
+            for r in range(L.CW_FIRST_ROW, L.CW_FIRST_ROW + 40):
+                assert ws.cell(row=r, column=col).value == 0
+
+
+def _recalc(wb, tmp_path_factory, label: str):
+    src = tmp_path_factory.mktemp(label) / f"{label}.xlsx"
+    wb.save(src)
+    outdir = tmp_path_factory.mktemp(f"{label}_out")
+    subprocess.run(
+        [SOFFICE, "--headless", "--norestore", "--convert-to", "xlsx",
+         "--outdir", str(outdir), str(src)],
+        check=True, capture_output=True, timeout=300)
+    return load_workbook(outdir / src.name, data_only=True)
+
+
+def _unfit(rows) -> float:
+    return sum(r.effort - sum(r.weekly.values()) for r in rows)
+
+
+def test_horizon_cell_extends_the_plan(built, tmp_path_factory):
+    """Raising Horizon on Config must lengthen the plan with no regeneration.
+
+    This is the whole point of building more week columns than are active: the
+    12->16 case has to work by typing in a cell.
+    """
+    if not Path(SOFFICE).exists():
+        pytest.skip("LibreOffice not installed")
+
+    horizon = 16
+    wb = load_workbook(built)
+    wb[L.CONFIG].cell(row=L.CFG_HORIZON_ROW, column=2).value = horizon
+    got = _recalc(wb, tmp_path_factory, "horizon16")
+
+    ws = got[L.CALC_WEEK]
+    for i in range(L.WEEK_COLS):
+        col = L.CW_FIRST_WEEK_COL + i
+        assert ws.cell(row=L.CW_ACTIVE_ROW, column=col).value == (1 if i < horizon else 0)
+
+    expected = reference.schedule_weekly(reference.build_subtasks(), horizon)
+    by_rank = {s.rank: s for s in expected}
+    weeks = {demo.START_WEEK + i: L.CW_FIRST_WEEK_COL + i for i in range(horizon)}
+    for i in range(len(expected)):
+        row = L.CW_FIRST_ROW + i
+        sub = by_rank[ws.cell(row=row, column=L.CW_RANK).value]
+        for week, col in weeks.items():
+            assert abs(ws.cell(row=row, column=col).value - sub.weekly[week]) < TOL, \
+                f"rank {sub.rank} {week}"
+
+    # the four extra weeks must actually absorb work that did not fit at 12
+    tail = sum(sub.weekly[demo.START_WEEK + i]
+               for sub in expected for i in range(demo.HORIZON, horizon))
+    assert tail > 0, "extending the horizon scheduled nothing new"
+
+    unfit_12 = _unfit(reference.schedule_weekly(reference.build_subtasks(), demo.HORIZON))
+    assert _unfit(expected) < unfit_12, "extending the horizon did not reduce unscheduled work"
+
+
+def test_task_beyond_horizon_is_flagged_not_silently_dropped(built, tmp_path_factory):
+    """A start week past the horizon must say so, not just vanish."""
+    if not Path(SOFFICE).exists():
+        pytest.skip("LibreOffice not installed")
+
+    wb = load_workbook(built)
+    wb[L.TASKS].cell(row=L.TASK_FIRST_ROW + 4, column=L.T_START_WW).value = (
+        demo.START_WEEK + demo.HORIZON + 2)
+    got = _recalc(wb, tmp_path_factory, "beyond")
+
+    check = got[L.TASKS].cell(row=L.TASK_FIRST_ROW + 4, column=L.T_CHECK).value
+    assert "outside horizon" in check, check
+
+
 def test_window_opened_mid_project(built, tmp_path_factory):
     """A window that starts after work has begun must show residual effort only.
 
@@ -236,18 +317,10 @@ def test_window_opened_mid_project(built, tmp_path_factory):
         pytest.skip("LibreOffice not installed")
 
     start, weeks = demo.START_WEEK + 4, 3
-    edited = tmp_path_factory.mktemp("window") / "shifted.xlsx"
     wb = load_workbook(built)
     wb[L.GANTT_DEEP][L.GD_WINDOW_START_CELL] = start
     wb[L.GANTT_DEEP][L.GD_WINDOW_WEEKS_CELL] = weeks
-    wb.save(edited)
-
-    outdir = tmp_path_factory.mktemp("window_recalc")
-    subprocess.run(
-        [SOFFICE, "--headless", "--norestore", "--convert-to", "xlsx",
-         "--outdir", str(outdir), str(edited)],
-        check=True, capture_output=True, timeout=300)
-    got = load_workbook(outdir / edited.name, data_only=True)
+    got = _recalc(wb, tmp_path_factory, "window")
 
     expected = reference.solve(window_start=start, window_weeks=weeks)
     by_rank = {s.rank: s for s in expected}
