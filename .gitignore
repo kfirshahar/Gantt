@@ -1,0 +1,13 @@
+# Generated output — rebuild with `python build_template.py`
+*.xlsx
+~$*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.bak
+
+# macOS
+.DS_Store
