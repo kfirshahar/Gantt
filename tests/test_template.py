@@ -308,6 +308,23 @@ def test_task_beyond_horizon_is_flagged_not_silently_dropped(built, tmp_path_fac
     assert "outside horizon" in check, check
 
 
+def test_load_rows_have_a_consistent_formula_pattern(built):
+    """Excel flags a formula that differs from the one above in R1C1 terms.
+
+    The assignee Used rows sit two apart here but one apart on CalcWeek, so a
+    direct row reference earned a warning triangle on every row but the first.
+    """
+    ws = load_workbook(built)[L.GANTT_HIGH]
+    col = L.col(3)
+
+    patterns = set()
+    for i in range(L.MAX_ASSIGNEES):
+        row = 5 + 2 * i
+        formula = ws[f"{col}{row}"].value
+        patterns.add(formula.replace(str(row), "<r>"))
+    assert len(patterns) == 1, f"Used rows differ in shape: {patterns}"
+
+
 def test_guide_is_the_first_tab(formulas):
     assert formulas.sheetnames[0] == L.GUIDE
 

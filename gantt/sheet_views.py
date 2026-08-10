@@ -49,7 +49,6 @@ def _assignee_load(ws, last_col: int) -> int:
     for i in range(L.MAX_ASSIGNEES):
         used_row = GH_LOAD_FIRST + 2 * i
         avail_row = used_row + 1
-        aw_row = L.CW_AWWEEK_FIRST + i
         src = L.GRID_FIRST_DATA_ROW + i
 
         ws.cell(row=used_row, column=1, value=(
@@ -64,9 +63,13 @@ def _assignee_load(ws, last_col: int) -> int:
 
         for w in range(L.WEEK_COLS):
             c = GH_WEEK_COL + w
-            wc = L.col(L.CW_FIRST_WEEK_COL + w)
+            # Looked up by name rather than by a direct CalcWeek row reference:
+            # these rows sit two apart here but one apart there, so a direct
+            # reference differs from the row above in R1C1 terms and Excel marks
+            # every row after the first with an "inconsistent formula" warning.
             used = ws.cell(row=used_row, column=c, value=(
-                f'=IF($A{used_row}="","",{L.sheet_ref(L.CALC_WEEK)}!{wc}{aw_row})'))
+                f'=IF($A{used_row}="","",IFERROR(INDEX(AwGrid,'
+                f'MATCH($A{used_row},AsgNames,0),{w + 1}),0))'))
             avail = ws.cell(row=avail_row, column=c, value=(
                 f'=IF($A{used_row}="","",IFERROR(INDEX(CapGrid,'
                 f'MATCH($A{used_row},CapNames,0),{w + 1}),0))'))
@@ -149,7 +152,6 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
     for i in range(L.MAX_EQUIPMENT):
         dem_row = first + 2 * i
         sup_row = dem_row + 1
-        eq_row = L.CW_EQPWEEK_FIRST + i
         src = L.GRID_FIRST_DATA_ROW + i
 
         ws.cell(row=dem_row, column=1, value=(
@@ -162,9 +164,10 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
 
         for w in range(L.WEEK_COLS):
             c = GH_WEEK_COL + w
-            wc = L.col(L.CW_FIRST_WEEK_COL + w)
+            # By name, for the same reason as the assignee Used rows above.
             need = ws.cell(row=dem_row, column=c, value=(
-                f'=IF($A{dem_row}="","",{L.sheet_ref(L.CALC_WEEK)}!{wc}{eq_row})'))
+                f'=IF($A{dem_row}="","",IFERROR(INDEX(EqDemand,'
+                f'MATCH($A{dem_row},EqpNames,0),{w + 1}),0))'))
             have = ws.cell(row=sup_row, column=c, value=(
                 f'=IF($A{dem_row}="","",IFERROR(INDEX(EqpGrid,'
                 f'MATCH($A{dem_row},EqpNames,0),{w + 1}),0))'))
