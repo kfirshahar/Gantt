@@ -9,15 +9,48 @@ BAND_INPUT = "1F4E79"       # header band on tabs the user edits
 BAND_OUTPUT = "3B5A40"      # header band on read-only views
 BAND_SECTION = "E4E7EB"     # block sub-headings
 
+OVER = "F8C9C9"
+WARN = "FDE9C9"
+OK = "D8EFD8"
+BAR = "9FC5E8"
+WEEKEND = "EEF1F4"
+
 FILL_INPUT_HDR = PatternFill("solid", fgColor=BAND_INPUT)
 FILL_OUTPUT_HDR = PatternFill("solid", fgColor=BAND_OUTPUT)
 FILL_SECTION = PatternFill("solid", fgColor=BAND_SECTION)
 FILL_DERIVED = PatternFill("solid", fgColor="F5F7FA")
-FILL_OVER = PatternFill("solid", fgColor="F8C9C9")
-FILL_WARN = PatternFill("solid", fgColor="FDE9C9")
-FILL_OK = PatternFill("solid", fgColor="D8EFD8")
-FILL_BAR = PatternFill("solid", fgColor="9FC5E8")
-FILL_WEEKEND = PatternFill("solid", fgColor="EEF1F4")
+FILL_OVER = PatternFill("solid", fgColor=OVER)
+FILL_WARN = PatternFill("solid", fgColor=WARN)
+FILL_OK = PatternFill("solid", fgColor=OK)
+FILL_BAR = PatternFill("solid", fgColor=BAR)
+FILL_WEEKEND = PatternFill("solid", fgColor=WEEKEND)
+
+
+def cf_fill(rgb: str) -> PatternFill:
+    """A fill for use inside a conditional-format DifferentialStyle.
+
+    Two things differ from an ordinary cell fill and Excel needs both. A dxf
+    solid fill takes its colour from bgColor, not fgColor — Excel writes its own
+    that way and ignores fgColor here. And the colour needs an explicit opaque
+    alpha, because openpyxl otherwise pads a bare six-digit value to `00RRGGBB`,
+    which is fully transparent. LibreOffice forgives both; Excel renders nothing.
+    """
+    return PatternFill(patternType="solid", bgColor="FF" + rgb.lstrip("#")[-6:])
+
+
+def cf_color(rgb: str) -> str:
+    """An opaque ARGB colour for a conditional-format font or border.
+
+    Same alpha trap as `cf_fill`: a bare six-digit value is padded to `00RRGGBB`.
+    """
+    return "FF" + rgb.lstrip("#")[-6:]
+
+
+CF_OVER = cf_fill(OVER)
+CF_WARN = cf_fill(WARN)
+CF_OK = cf_fill(OK)
+CF_BAR = cf_fill(BAR)
+CF_WEEKEND = cf_fill(WEEKEND)
 
 FONT_TITLE = Font(bold=True, size=14, color=INK)
 FONT_HDR = Font(bold=True, size=10, color="FFFFFF")
@@ -91,5 +124,5 @@ def grey_inactive_weeks(ws, first_col: int, last_col: int,
     ws.conditional_formatting.add(
         f"{first}{first_row}:{get_column_letter(last_col)}{last_row}",
         Rule(type="expression",
-             dxf=DifferentialStyle(fill=FILL_WEEKEND, font=Font(color=MUTED)),
+             dxf=DifferentialStyle(fill=CF_WEEKEND, font=Font(color=cf_color(MUTED))),
              formula=[f"{flag}=0"]))

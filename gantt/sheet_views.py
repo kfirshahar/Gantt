@@ -84,14 +84,15 @@ def _assignee_load(ws, last_col: int) -> int:
         # this person is the bottleneck holding the plan back.
         span = f"{L.col(GH_WEEK_COL)}{used_row}:{L.col(last_col)}{used_row}"
         ws.conditional_formatting.add(span, Rule(
-            type="expression", dxf=DifferentialStyle(fill=S.FILL_OVER, font=Font(bold=True)),
+            type="expression", dxf=DifferentialStyle(fill=S.CF_OVER, font=Font(bold=True)),
             formula=[f'AND({L.col(GH_WEEK_COL)}{used_row}<>"",'
                      f'{L.col(GH_WEEK_COL)}{avail_row}>0,'
                      f'{L.col(GH_WEEK_COL)}{used_row}>='
                      f'{L.col(GH_WEEK_COL)}{avail_row})']))
         ws.conditional_formatting.add(span, Rule(
-            type="expression", dxf=DifferentialStyle(fill=S.FILL_OK),
-            formula=[f'AND({L.col(GH_WEEK_COL)}{used_row}>0,'
+            type="expression", dxf=DifferentialStyle(fill=S.CF_OK),
+            formula=[f'AND(ISNUMBER({L.col(GH_WEEK_COL)}{used_row}),'
+                     f'{L.col(GH_WEEK_COL)}{used_row}>0,'
                      f'{L.col(GH_WEEK_COL)}{used_row}<{L.col(GH_WEEK_COL)}{avail_row})']))
 
         ws.cell(row=used_row, column=1).border = S.BORDER_ALL
@@ -133,10 +134,15 @@ def _task_timeline(ws, start_row: int, last_col: int) -> int:
             ws.cell(row=r, column=c).border = S.BORDER_ALL
 
     last = first + L.MAX_TASKS - 1
+    # ISNUMBER is load-bearing. A week with no work holds "" rather than 0, and
+    # Excel ranks any text above any number, so a plain `>0` test is TRUE for an
+    # empty cell and paints the whole grid. LibreOffice disagrees and returns
+    # FALSE, so this cannot be caught by recalculating there.
+    bar = f"{L.col(GH_WEEK_COL)}{first}"
     ws.conditional_formatting.add(
-        f"{L.col(GH_WEEK_COL)}{first}:{L.col(last_col)}{last}",
-        Rule(type="cellIs", operator="greaterThan", formula=["0"],
-             dxf=DifferentialStyle(fill=S.FILL_BAR)))
+        f"{bar}:{L.col(last_col)}{last}",
+        Rule(type="expression", dxf=DifferentialStyle(fill=S.CF_BAR),
+             formula=[f"AND(ISNUMBER({bar}),{bar}>0)"]))
     S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last)
     return last
 
@@ -179,7 +185,7 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
 
         span = f"{L.col(GH_WEEK_COL)}{dem_row}:{L.col(last_col)}{dem_row}"
         ws.conditional_formatting.add(span, Rule(
-            type="expression", dxf=DifferentialStyle(fill=S.FILL_OVER, font=Font(bold=True)),
+            type="expression", dxf=DifferentialStyle(fill=S.CF_OVER, font=Font(bold=True)),
             formula=[f'AND({L.col(GH_WEEK_COL)}{dem_row}<>"",'
                      f'{L.col(GH_WEEK_COL)}{dem_row}>{L.col(GH_WEEK_COL)}{sup_row})']))
         ws.cell(row=dem_row, column=1).border = S.BORDER_ALL
@@ -220,10 +226,10 @@ def _checks(ws, start_row: int) -> None:
     span = f"B{start_row + 2}:B{start_row + 1 + len(checks)}"
     ws.conditional_formatting.add(span, Rule(
         type="cellIs", operator="greaterThan", formula=["0"],
-        dxf=DifferentialStyle(fill=S.FILL_WARN, font=Font(bold=True))))
+        dxf=DifferentialStyle(fill=S.CF_WARN, font=Font(bold=True))))
     ws.conditional_formatting.add(span, Rule(
         type="cellIs", operator="equal", formula=["0"],
-        dxf=DifferentialStyle(fill=S.FILL_OK)))
+        dxf=DifferentialStyle(fill=S.CF_OK)))
 
     note = ws.cell(row=start_row + 2 + len(checks) + 1, column=1, value=(
         "Saturation and equipment shortage are information, not errors — they show "
@@ -297,8 +303,8 @@ def _deep_headers(ws) -> None:
     for row in (GD_WEEK_ROW, GD_DAY_ROW, GD_DATE_ROW):
         ws.conditional_formatting.add(
             f"{L.col(GD_DAY_COL)}{row}:{L.col(last)}{row}",
-            Rule(type="expression", dxf=DifferentialStyle(fill=S.FILL_WEEKEND,
-                                                          font=Font(color=S.MUTED)),
+            Rule(type="expression", dxf=DifferentialStyle(fill=S.CF_WEEKEND,
+                                                          font=Font(color=S.cf_color(S.MUTED))),
                  formula=[f"{cd}!{L.col(L.CD_FIRST_DAY_COL)}${L.CD_INWINDOW_ROW}=0"]))
 
 
@@ -329,20 +335,23 @@ def _deep_rows(ws) -> None:
 
     last_row = GD_FIRST_ROW + L.MAX_SUBTASKS - 1
     body = f"{L.col(GD_DAY_COL)}{GD_FIRST_ROW}:{L.col(last_col)}{last_row}"
+    # Same reason as the task timeline: an idle day holds "" and Excel treats
+    # text as greater than any number.
+    bar = f"{L.col(GD_DAY_COL)}{GD_FIRST_ROW}"
     ws.conditional_formatting.add(body, Rule(
-        type="cellIs", operator="greaterThan", formula=["0"],
-        dxf=DifferentialStyle(fill=S.FILL_BAR)))
+        type="expression", dxf=DifferentialStyle(fill=S.CF_BAR),
+        formula=[f"AND(ISNUMBER({bar}),{bar}>0)"]))
     ws.conditional_formatting.add(body, Rule(
-        type="expression", dxf=DifferentialStyle(fill=S.FILL_WEEKEND),
+        type="expression", dxf=DifferentialStyle(fill=S.CF_WEEKEND),
         formula=[f"{cd}!{L.col(L.CD_FIRST_DAY_COL)}${L.CD_INWINDOW_ROW}=0"]))
 
     # Same hide-the-repeats treatment as the Sub-Tasks tab.
     ws.conditional_formatting.add(
         f"A{GD_FIRST_ROW}:A{last_row}",
-        Rule(type="expression", dxf=DifferentialStyle(font=Font(color="FFFFFF")),
+        Rule(type="expression", dxf=DifferentialStyle(font=Font(color=S.cf_color("FFFFFF"))),
              formula=[f'AND($A{GD_FIRST_ROW}<>"",$A{GD_FIRST_ROW}=$A{GD_FIRST_ROW - 1})']))
     ws.conditional_formatting.add(
         f"A{GD_FIRST_ROW}:{L.col(last_col)}{last_row}",
         Rule(type="expression",
-             dxf=DifferentialStyle(border=Border(top=Side(style="medium", color=S.INK))),
+             dxf=DifferentialStyle(border=Border(top=Side(style="medium", color=S.cf_color(S.INK)))),
              formula=[f'AND($A{GD_FIRST_ROW}<>"",$A{GD_FIRST_ROW}<>$A{GD_FIRST_ROW - 1})']))

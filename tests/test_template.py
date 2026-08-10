@@ -14,7 +14,8 @@ from openpyxl import load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gantt import calendar_utils as C, demo, layout as L, names as N, reference  # noqa: E402
+from gantt import (calendar_utils as C, demo, layout as L, names as N,  # noqa: E402
+                   reference, styles as S)
 from gantt.build import build  # noqa: E402
 
 SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
@@ -306,6 +307,64 @@ def test_task_beyond_horizon_is_flagged_not_silently_dropped(built, tmp_path_fac
 
     check = got[L.TASKS].cell(row=L.TASK_FIRST_ROW + 4, column=L.T_CHECK).value
     assert "outside horizon" in check, check
+
+
+def test_conditional_format_styles_render_in_excel(built):
+    """Guards two Excel-only traps that LibreOffice silently forgives.
+
+    A dxf solid fill takes its colour from bgColor — Excel ignores fgColor here
+    and paints nothing. And a bare six-digit colour is padded to `00RRGGBB`,
+    a fully transparent alpha. Both were live, which is why every conditional
+    colour was missing in Office 2019 while the recalculated numbers were right.
+    """
+    import re
+    import zipfile
+
+    with zipfile.ZipFile(built) as z:
+        styles = z.read("xl/styles.xml").decode()
+
+    block = re.search(r"<dxfs.*?</dxfs>", styles, re.S)
+    assert block, "no differential styles were written"
+    dxfs = re.findall(r"<dxf>.*?</dxf>", block.group(0), re.S)
+    assert dxfs, "no differential styles were written"
+
+    for dxf in dxfs:
+        assert "fgColor" not in dxf, f"dxf fill must use bgColor: {dxf}"
+        for colour in re.findall(r'rgb="([0-9A-Fa-f]{8})"', dxf):
+            assert colour[:2] != "00", f"transparent colour {colour} in {dxf}"
+
+
+def test_bar_shading_only_fires_on_real_numbers(built):
+    """A `>0` test alone paints every empty cell in Excel.
+
+    Idle weeks and days hold "" rather than 0, and Excel ranks any text above
+    any number, so `"" > 0` is TRUE and the whole grid shades. LibreOffice
+    returns FALSE for the same comparison, so recalculating there cannot catch
+    this — hence a structural check on the rule itself.
+    """
+    import re
+    import zipfile
+
+    with zipfile.ZipFile(built) as z:
+        styles = z.read("xl/styles.xml").decode()
+        sheets = {n: z.read(n).decode()
+                  for n in z.namelist() if n.startswith("xl/worksheets/sheet")}
+
+    dxfs = re.findall(r"<dxf>.*?</dxf>",
+                      re.search(r"<dxfs.*?</dxfs>", styles, re.S).group(0), re.S)
+    bar_ids = {i for i, d in enumerate(dxfs) if S.BAR in d}
+    assert bar_ids, "no rule uses the bar fill"
+
+    seen = 0
+    for xml in sheets.values():
+        for rule in re.findall(r"<cfRule .*?</cfRule>|<cfRule [^>]*/>", xml, re.S):
+            m = re.search(r'dxfId="(\d+)"', rule)
+            if not m or int(m.group(1)) not in bar_ids:
+                continue
+            seen += 1
+            assert 'type="cellIs"' not in rule, f"bar rule must not use cellIs: {rule[:120]}"
+            assert "ISNUMBER" in rule, f"bar rule must guard on ISNUMBER: {rule[:120]}"
+    assert seen >= 2, f"expected the timeline and deep-dive bar rules, found {seen}"
 
 
 def test_load_rows_have_a_consistent_formula_pattern(built):

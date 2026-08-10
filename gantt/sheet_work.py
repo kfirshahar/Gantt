@@ -22,11 +22,11 @@ def _check_formatting(ws, col: int, first_row: int, last_row: int) -> None:
     rng = f"{L.col(col)}{first_row}:{L.col(col)}{last_row}"
     ws.conditional_formatting.add(rng, Rule(
         type="containsText", operator="containsText", text="⚠",
-        dxf=DifferentialStyle(fill=S.FILL_WARN),
+        dxf=DifferentialStyle(fill=S.CF_WARN),
         formula=[f'NOT(ISERROR(SEARCH("⚠",{L.col(col)}{first_row})))']))
     ws.conditional_formatting.add(rng, Rule(
         type="containsText", operator="containsText", text="ok",
-        dxf=DifferentialStyle(fill=S.FILL_OK),
+        dxf=DifferentialStyle(fill=S.CF_OK),
         formula=[f'NOT(ISERROR(SEARCH("ok",{L.col(col)}{first_row})))']))
 
 
@@ -180,11 +180,11 @@ def _parent_looks_merged(ws) -> None:
     repeats = f"{parent_col}{first}:{parent_col}{last}"
     ws.conditional_formatting.add(repeats, Rule(
         type="expression",
-        dxf=DifferentialStyle(font=Font(color="FFFFFF")),
+        dxf=DifferentialStyle(font=Font(color=S.cf_color("FFFFFF"))),
         formula=[f'AND(${parent_col}{first}<>"",${parent_col}{first}=${parent_col}{first - 1})']))
 
     whole_row = f"A{first}:{L.col(L.S_CHECK)}{last}"
     ws.conditional_formatting.add(whole_row, Rule(
         type="expression",
-        dxf=DifferentialStyle(border=Border(top=Side(style="medium", color=S.INK))),
+        dxf=DifferentialStyle(border=Border(top=Side(style="medium", color=S.cf_color(S.INK)))),
         formula=[f'AND(${parent_col}{first}<>"",${parent_col}{first}<>${parent_col}{first - 1})']))
