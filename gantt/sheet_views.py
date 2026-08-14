@@ -72,7 +72,8 @@ def _assignee_load(ws, last_col: int) -> int:
                 f'MATCH($A{used_row},AsgNames,0),{w + 1}),0))'))
             avail = ws.cell(row=avail_row, column=c, value=(
                 f'=IF($A{used_row}="","",IFERROR(INDEX(CapGrid,'
-                f'MATCH($A{used_row},CapNames,0),{w + 1}),0))'))
+                f'MATCH($A{used_row},CapNames,0),{w + 1}),0)'
+                f'*INDEX(CwFactor,{w + 1}))'))
             for cell in (used, avail):
                 cell.number_format = "0.0"
                 cell.alignment = S.CENTER

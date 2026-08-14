@@ -142,12 +142,61 @@ def test_weekly_allocations_match_reference(values, solved):
 
 
 def test_no_week_exceeds_assignee_capacity(values, solved):
+    """Against the holiday-reduced figure, not the raw one, which would pass
+    trivially in any week a holiday shortens."""
     load = reference.assignee_load(solved)
     weeks = list(_week_cols())
     for name, per_week in load.items():
-        for i, week in enumerate(weeks):
-            cap = demo.CAPACITY[name][i]
+        for week in weeks:
+            cap = reference.week_capacity(name, week, weeks)
             assert per_week[week] <= cap + TOL, f"{name} {week}"
+
+
+def test_holidays_reduce_weekly_bandwidth(values):
+    """A company holiday must cut what an assignee has, not merely move it.
+
+    The Holidays tab used only to redistribute a week's total across the days
+    that remained, so the totals matched Capacity exactly and a five-day week
+    with one holiday allowed 1.25 days of work per day.
+    """
+    weeks = [demo.START_WEEK + i for i in range(demo.HORIZON)]
+    shortened = [w for w in weeks if reference.working_days(w) < L.WORKDAYS_PER_WEEK]
+    assert shortened, "the demo data needs a holiday inside the horizon"
+
+    gh = values[L.GANTT_HIGH]
+    for i, (name, _) in enumerate(demo.ASSIGNEES):
+        avail_row = 6 + 2 * i
+        total_avail = 0.0
+        for j, week in enumerate(weeks):
+            got = gh.cell(row=avail_row, column=3 + j).value
+            assert abs(got - reference.week_capacity(name, week, weeks)) < TOL, \
+                f"{name} {week}"
+            total_avail += got
+
+        raw_total = sum(demo.CAPACITY[name][:demo.HORIZON])
+        assert total_avail < raw_total - TOL, \
+            f"{name}: holidays subtracted nothing ({total_avail} == {raw_total})"
+
+
+def test_no_day_exceeds_a_full_working_day(values, solved):
+    """Nobody may be given more than their daily rate on any single day.
+
+    Checked against the rate for the week the day actually falls in, since
+    capacity varies week to week.
+    """
+    weeks = [demo.START_WEEK + i for i in range(demo.HORIZON)]
+    day_to_week = {d.isoformat(): w for w in weeks for d in C.workdays(demo.YEAR, w)}
+
+    checked = 0
+    for sub in solved:
+        for iso, days in sub.daily.items():
+            if days <= 0:
+                continue
+            week = day_to_week[iso]
+            rate = demo.CAPACITY[sub.assignee][weeks.index(week)] / L.WORKDAYS_PER_WEEK
+            assert days <= rate + TOL, f"{sub.parent} {iso}: {days} > {rate}"
+            checked += 1
+    assert checked, "no day-level allocations were examined"
 
 
 def test_assignee_load_block_matches_reference(values, solved):

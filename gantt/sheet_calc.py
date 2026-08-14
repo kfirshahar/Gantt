@@ -57,7 +57,8 @@ def build_calc_week(ws) -> None:
             # Column position is known at generation time, so the capacity
             # lookup indexes straight into the grid instead of matching on a
             # header. Nothing here depends on the week's calendar number.
-            cap = f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),{pos}),0)"
+            cap = (f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),{pos}),0)"
+                   f"*INDEX(CwFactor,{pos})")
             claimed = ("0" if r == first else
                        f"SUMIF($C${first}:$C{r - 1},$C{r},{wc}${first}:{wc}{r - 1})")
             ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + i, value=(
@@ -80,7 +81,8 @@ def _week_headers(ws) -> None:
     """
     labels = [(L.CW_POS_ROW, "Position"), (L.CW_ABS_ROW, "Absolute"),
               (L.CW_SUN_ROW, "Sunday"), (L.CW_YEAR_ROW, "Year"),
-              (L.CW_WEEK_ROW, "Calendar WW"), (L.CW_ACTIVE_ROW, "Active?"),
+              (L.CW_WEEK_ROW, "Calendar WW"), (L.CW_WORKDAYS_ROW, "Work days"),
+              (L.CW_FACTOR_ROW, "Holiday factor"), (L.CW_ACTIVE_ROW, "Active?"),
               (L.CW_LABEL_ROW, "Label")]
     for row, text in labels:
         ws.cell(row=row, column=1, value=text).font = S.FONT_NOTE
@@ -100,6 +102,14 @@ def _week_headers(ws) -> None:
                 value=f"={C.excel_calendar_year_formula(sun)}")
         ws.cell(row=L.CW_WEEK_ROW, column=col,
                 value=f"={C.excel_calendar_week_formula(sun, year)}")
+        # Company holidays shorten the week, and capacity is reduced in
+        # proportion. Entered capacity is what someone has in a normal five-day
+        # week; this is the only place holidays touch the weekly totals.
+        ws.cell(row=L.CW_WORKDAYS_ROW, column=col, value=(
+            f'={L.WORKDAYS_PER_WEEK}-COUNTIFS(HolDates,">="&{sun},'
+            f'HolDates,"<="&{sun}+{L.WORKDAYS_PER_WEEK - 1})'))
+        ws.cell(row=L.CW_FACTOR_ROW, column=col,
+                value=f"={wc}${L.CW_WORKDAYS_ROW}/{L.WORKDAYS_PER_WEEK}")
         # Weeks past the configured horizon are switched off here, which is what
         # lets Config's Horizon cell lengthen or shorten the plan without the
         # workbook being regenerated.
@@ -203,10 +213,14 @@ def build_calc_day(ws) -> None:
                      f"SUM($G{r}:{L.col(L.CD_FIRST_DAY_COL + i - 1)}{r})")
             claimed = ("0" if r == first else
                        f"SUMIF($C${first}:$C{r - 1},$C{r},{dc}${first}:{dc}{r - 1})")
-            week_cap = (f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),{pos}),0)")
-            day_cap = (f'IF(OR({dc}${L.CD_INWINDOW_ROW}=0,{dc}${L.CD_HOLIDAY_ROW}=1,'
-                       f'{dc}${L.CD_WORKDAYS_ROW}<=0),0,'
-                       f'{week_cap}/{dc}${L.CD_WORKDAYS_ROW})')
+            # Weekly capacity is already reduced pro-rata, so dividing it by the
+            # shortened week cancels out and leaves the person's ordinary daily
+            # rate. Dividing by the remaining days instead would compress a full
+            # week's work into fewer days and allow more than a day per day.
+            rate = (f"IFERROR(INDEX(CapGrid,MATCH($C{r},CapNames,0),{pos}),0)"
+                    f"/{L.WORKDAYS_PER_WEEK}")
+            day_cap = (f'IF(OR({dc}${L.CD_INWINDOW_ROW}=0,{dc}${L.CD_HOLIDAY_ROW}=1),'
+                       f'0,{rate})')
             ws.cell(row=r, column=L.CD_FIRST_DAY_COL + i, value=(
                 f'=IF($B{r}="",0,IF({dc}${L.CD_INWINDOW_ROW}=0,0,'
                 f'IF({pos}<$E{r},0,'
@@ -240,9 +254,8 @@ def _day_headers(ws) -> None:
         d.number_format = "yyyy-mm-dd"
         ws.cell(row=L.CD_HOLIDAY_ROW, column=col,
                 value=f"=IF(COUNTIF(HolDates,{c}${L.CD_DATE_ROW})>0,1,0)")
-        ws.cell(row=L.CD_WORKDAYS_ROW, column=col, value=(
-            f'={L.WORKDAYS_PER_WEEK}-COUNTIFS(HolDates,">="&{sun},'
-            f'HolDates,"<="&{sun}+{L.WORKDAYS_PER_WEEK - 1})'))
+        ws.cell(row=L.CD_WORKDAYS_ROW, column=col,
+                value=f'=IFERROR(INDEX(CwWorkdays,{pos}),0)')
         ws.cell(row=L.CD_INWINDOW_ROW, column=col, value=(
             f'=IF(AND({wk}<DeepWeeks,{pos}>=1,{pos}<=CfgHorizon),1,0)'))
         ws.cell(row=L.CD_LABEL_ROW, column=col,

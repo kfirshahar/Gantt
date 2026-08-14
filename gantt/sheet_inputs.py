@@ -134,8 +134,10 @@ def build_capacity(ws) -> None:
     ws.freeze_panes = "B2"
     r = N.LAST_ASG_ROW + 2
     ws.cell(row=r, column=1,
-            value="Available work days per assignee per week "
-                  "(holidays, vacation and part-time bandwidth already netted out).").font = S.FONT_NOTE
+            value="Work days each assignee has in a NORMAL five-day week — net of "
+                  "vacation and part-time hours, but NOT of company holidays. Those come "
+                  "from the Holidays tab and are subtracted pro-rata: a week with one "
+                  "holiday is worth 4/5 of the figure you type here.").font = S.FONT_NOTE
 
 
 def build_equipment(ws) -> None:

@@ -27,12 +27,23 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "dial that turns the word 'Complex' into a number of days.",
         "2. Assignees — names and proficiency. 1.00 is an average performer; 1.20 "
         "finishes a job in 1/1.2 of the base days; 0.80 takes longer.",
-        "3. Capacity — how many days each person actually has each week, already "
-        "net of vacation and part-time hours.",
+        "3. Capacity — how many days each person has in a normal five-day week, net "
+        "of vacation and part-time hours. Do not subtract company holidays here; "
+        "the Holidays tab does that for you.",
         "4. Equipment — how many units of each type exist in the shared pool each week.",
-        "5. Holidays — company-wide non-working days.",
+        "5. Holidays — company-wide non-working days. Each one shortens the week for "
+        "everybody and cuts that week's capacity in proportion: one holiday makes the "
+        "week worth 4/5 of what you entered on Capacity.",
         "6. Tasks — one row per deliverable.",
         "7. Sub-Tasks — the actual work. All effort comes from here.",
+    ]),
+    ("Where the numbers on Gantt-High come from", [
+        "Avail is not simply what you typed on Capacity. It is that figure reduced "
+        "pro-rata for company holidays, so a week containing one holiday shows 4/5 of "
+        "it. This is the only place holidays change a total.",
+        "Because of that, a person is never given more than one day of work in a day: "
+        "their daily rate is just their weekly figure divided by five, and a holiday "
+        "removes the day rather than squeezing the same work into the days that remain.",
     ]),
     ("How the scheduling works", [
         "You never type a duration. Each sub-task's effort is the base days for its "

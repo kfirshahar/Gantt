@@ -74,7 +74,7 @@ def schedule_weekly(rows: list[SubTask], horizon: int | None = None) -> list[Sub
             if w < start or remaining <= 1e-9:
                 row.weekly[w] = 0.0
                 continue
-            cap = demo.CAPACITY[row.assignee][weeks.index(w)]
+            cap = week_capacity(row.assignee, w, weeks)
             free = max(0.0, cap - used.get((row.assignee, w), 0.0))
             take = min(remaining, free)
             row.weekly[w] = take
@@ -88,6 +88,22 @@ def _holidays() -> set:
     return {datetime.strptime(d, "%Y-%m-%d").date() for d, _ in demo.HOLIDAYS}
 
 
+def working_days(week: int) -> int:
+    """Sun..Thu days in a week that are not company holidays."""
+    holidays = _holidays()
+    return sum(1 for d in C.workdays(demo.YEAR, week) if d not in holidays)
+
+
+def week_capacity(name: str, week: int, weeks: list[int]) -> float:
+    """Entered capacity reduced pro-rata for company holidays.
+
+    The entered figure is what the person has in a normal five-day week; a week
+    shortened by a holiday scales it down in proportion.
+    """
+    raw = demo.CAPACITY[name][weeks.index(week)]
+    return raw * working_days(week) / C.WORKDAYS_PER_WEEK
+
+
 def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int,
                    horizon: int | None = None) -> list[SubTask]:
     """Same algorithm at day granularity across the visible window."""
@@ -99,12 +115,12 @@ def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int,
     window = [w for w in range(window_start, window_start + window_weeks) if w in weeks]
     day_caps: dict[tuple[str, str], float] = {}
     for w in window:
-        days = C.workdays(demo.YEAR, w)
-        working = [d for d in days if d not in holidays]
         for name, _ in demo.ASSIGNEES:
-            week_cap = demo.CAPACITY[name][weeks.index(w)]
-            per_day = week_cap / len(working) if working else 0.0
-            for d in days:
+            # Weekly capacity is already pro-rated, so the day rate is just the
+            # ordinary daily rate; holidays remove whole days rather than
+            # concentrating the week's work into the ones that remain.
+            per_day = demo.CAPACITY[name][weeks.index(w)] / C.WORKDAYS_PER_WEEK
+            for d in C.workdays(demo.YEAR, w):
                 day_caps[(name, d.isoformat())] = 0.0 if d in holidays else per_day
 
     for row in sorted(rows, key=lambda s: s.rank):
