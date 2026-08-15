@@ -780,3 +780,40 @@ def test_scheduling_never_sees_the_history_grid(formulas):
             formula = ws.cell(row=row, column=col).value
             assert "ActGrid" not in str(formula), \
                 f"the planning grid reads history at row {row}"
+
+
+def test_status_decides_and_the_percentage_is_subordinate(built, tmp_path):
+    """Two sources of truth for one fact would eventually disagree.
+
+    Done must claim nothing whatever the percentage says, including when it says
+    nothing at all; and In Progress with no percentage must read as no progress,
+    which overstates what is left rather than understating it.
+    """
+    _needs_recalc()
+
+    wb = load_workbook(built)
+    ws = wb[L.SUBTASKS]
+    cases = {2: ("Done", None), 3: ("Done", 40),
+             4: ("In Progress", None), 5: ("In Progress", 60)}
+    for row, (status, pct) in cases.items():
+        ws.cell(row=row, column=L.S_STATUS).value = status
+        ws.cell(row=row, column=L.S_PCT_DONE).value = pct
+        ws.cell(row=row, column=L.S_ACT_START).value = demo.START_WEEK
+
+    edited = tmp_path / "edge.xlsx"
+    wb.save(edited)
+    got = load_workbook(BACKEND.recalculate(edited, tmp_path / "out"),
+                        data_only=True)[L.SUBTASKS]
+
+    for row, (status, _pct) in cases.items():
+        effort = got.cell(row=row, column=L.S_EFFORT).value
+        remaining = got.cell(row=row, column=L.S_REMAINING).value
+        consumed = got.cell(row=row, column=L.S_CONSUMED).value
+        if status == "Done":
+            assert remaining == 0, f"row {row}: Done still claims {remaining}"
+            assert abs(consumed - effort) < TOL, f"row {row}: consumed != effort"
+        elif _pct is None:
+            assert abs(remaining - effort) < TOL, \
+                f"row {row}: a blank percentage must read as no progress"
+        else:
+            assert abs(remaining - effort * (1 - _pct / 100)) < TOL, f"row {row}"

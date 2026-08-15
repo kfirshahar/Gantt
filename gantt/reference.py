@@ -69,7 +69,7 @@ def build_subtasks() -> list[SubTask]:
                + index)
         rows.append(SubTask(parent, name, complexity, assignee, effort, status,
                             remaining, key, index,
-                            consumed=round(effort - remaining, 4),
+                            consumed=effort - remaining,
                             actual_start=sub.get("actual_start_week"),
                             actual_end=sub.get("actual_end_week")))
 

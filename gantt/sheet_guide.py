@@ -74,6 +74,13 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "complexity divided by its assignee's proficiency. A task's effort is the sum "
         "of its sub-tasks.",
         "What actually competes for capacity is Remaining, not Effort: Status TODO or "
+        "Leaving % done blank on a Done sub-task is fine — the status decides, so "
+        "remaining goes to zero and the whole of its effort is recorded as consumed. "
+        "A stale percentage left behind is ignored rather than obeyed.",
+        "The reverse is not symmetric: In Progress with a blank % done reads as nothing "
+        "done yet, and claims its full effort. That errs towards overstating what is "
+        "left, but a genuinely half-finished task will look untouched until you fill the "
+        "number in.",
         "In Progress claims effort minus % done, and Status Done claims nothing at all "
         "regardless of what % done says. Mark work Done and it stops occupying anyone's "
         "week.",

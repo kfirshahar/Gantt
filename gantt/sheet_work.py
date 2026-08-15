@@ -187,7 +187,9 @@ def build_subtasks(ws) -> None:
             f'${c_effort}{r}*(1-N(${c_pct}{r})/100)))')).number_format = "0.00"
         ws.cell(row=r, column=L.S_CONSUMED, value=(
             f'=IF(${c_effort}{r}="","",'
-            f'ROUND(${c_effort}{r}-${c_remaining}{r},4))')).number_format = "0.00"
+            # Not rounded: the number format handles display, and an inexact
+            # consumed would leave the history band not quite summing to it.
+            f'${c_effort}{r}-${c_remaining}{r})')).number_format = "0.00"
         ws.cell(row=r, column=L.S_KEY, value=(
             f'=IF(${c_effort}{r}="","",IFERROR('
             f'INDEX(PrioRank,MATCH(INDEX(TaskPrio,{parent_row}),PrioNames,0))*1000000000'
