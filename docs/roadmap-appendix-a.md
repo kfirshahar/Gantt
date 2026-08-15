@@ -1,7 +1,7 @@
 # Roadmap — Appendix A and B
 
 Date: 2026-08-15
-Status: Phase 0 complete and verified on the target machine; Phases 1-6 proposed
+Status: Phases 0 and 1 complete; Phases 2-6 proposed
 
 Decisions taken (Appendix A): `% done` is needed; `Done` work appears in the
 Gantt where it actually happened; the field-ownership split is confirmed; real
@@ -105,7 +105,7 @@ the skill to be specified here but implemented there.
 
 The design principle that makes this nearly a non-issue: **put every piece of
 logic in the Python CLI**. If the skill's whole job is to call
-`python -m gantt.io import --json update.json plan.xlsx`, then it needs no
+`python -m gantt.exchange import --json update.json plan.xlsx`, then it needs no
 process handling, no text munging, no shell primitives — and bash versus
 PowerShell stops mattering. A skill that shells out to `sed`, `jq` or `find` has
 to be rewritten for Windows; one that calls a single Python entry point does not.
@@ -139,14 +139,33 @@ That is worth recording because it was **the risk this roadmap named for Phase
 have silently stripped the colours from a user's workbook and the cause would
 have been considerably harder to find.
 
-### Phase 1 — Export XLSX → JSON (schema v1)
+### Known issue, deferred
+
+A faulthandler "Windows fatal exception" still appears intermittently on the
+target machine, in a different test each run. It does not fail the suite. The
+varying location points at Excel process teardown timing rather than anything a
+particular test does, so the next thing to try is reusing a single Excel instance
+for the whole session rather than starting and quitting one per recalculation.
+Deferred by agreement.
+
+### Phase 1 — Export XLSX → JSON (schema v1) — **DONE**
 
 - All input tabs: `Config`, `Assignees`, `Capacity`, `Equipment`, `Holidays`,
   `Tasks`, `Sub-Tasks`.
 - `schema_version` at the root, `1` for today's layout.
-- `python -m gantt.io export plan.xlsx -o plan.json`
+- `python -m gantt.exchange export plan.xlsx -o plan.json`
 - Must read the **v4 workbook as it exists on the target machine**, which is
   today's format, so this is exactly the file the exporter is written against.
+
+Delivered with one invariant worth carrying into Phase 2: **nothing computed is
+ever read**. openpyxl does not evaluate formulas, so a freshly generated
+workbook has no cached results at all — an exporter reaching for a derived
+column would return null for a new file and a stale number for an edited one.
+Export therefore reads only cells the user types into, and rebuilds the few
+derived facts it needs (a sub-task's ID) using the same rule the workbook uses.
+
+Two consequences: export needs no recalculation engine, so it runs anywhere; and
+it cannot silently emit stale data.
 
 Size: S. Protects the live data before anything else moves.
 
@@ -220,7 +239,7 @@ Size: M, mostly formulas over grids that already exist.
 - A `SKILL.md` describing the weekly cadence: export current state, apply the
   status update, re-import, recompute, report what moved and what newly fails to
   converge.
-- Every step is one `python -m gantt.io` call, so no PowerShell beyond invoking
+- Every step is one `python -m gantt.exchange` call, so no PowerShell beyond invoking
   Python.
 - The JSON payload shape, with worked examples for first ingest and for an
   update introducing new sub-tasks.
@@ -233,7 +252,7 @@ Size: M for the specification.
 
 ```
 0 Portability ──► 1 Export ──► 2 Import/rebuild ──► 3 Status ──► 4 Actuals ──► 5 Diagnostics ──► 6 Skill spec
-    DONE           (v4 data)     (round-trip)        (schema v2)   (history)     (actionable)      (Opencode)
+    DONE            DONE          (round-trip)       (schema v2)   (history)     (actionable)      (Opencode)
 ```
 
 Phase 0 first because the target machine cannot verify anything until the suite

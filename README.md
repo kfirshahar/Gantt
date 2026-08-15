@@ -97,6 +97,29 @@ silently stretch the plan.
 
 See `docs/superpowers/specs/` for the full design and the decisions behind it.
 
+## Getting the data out
+
+```sh
+python -m gantt.exchange export plan.xlsx -o plan.json
+python -m gantt.exchange export plan.xlsx            # stdout
+```
+
+Covers every input tab: `Config`, `Assignees`, `Capacity`, `Equipment`,
+`Holidays`, `Tasks`, `Sub-Tasks`. Derived columns are deliberately absent —
+they are recomputed by the workbook and would be stale the moment anything
+upstream changed.
+
+Nothing computed is ever read, so **export needs no Excel or LibreOffice** and
+works on a workbook that has never been opened. A sub-task's ID is rebuilt in
+Python using the same rule the formula uses, rather than read from the cell.
+
+Week grids are exported by offset from `config.start_week`, not by calendar
+week, since calendar labels live in computed cells:
+
+```json
+{"assignee": "Alice", "days_by_week_offset": [5, 5, 4.5, 5, ...]}
+```
+
 ## Layout
 
 The workbook opens on a **Guide** tab explaining the fill order, how scheduling
