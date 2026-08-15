@@ -23,6 +23,7 @@ Selection, in order:
 
 from __future__ import annotations
 
+import gc
 import os
 import platform
 import shutil
@@ -127,7 +128,15 @@ class ExcelCOM(Backend):
             dst.unlink()          # SaveAs prompts rather than overwriting
         xlOpenXMLWorkbook = 51
 
-        pythoncom.CoInitialize()
+        # CoInitialize raises if the thread already joined a different apartment,
+        # which is harmless — but only uninitialise what we initialised.
+        initialised = False
+        try:
+            pythoncom.CoInitialize()
+            initialised = True
+        except pythoncom.com_error:
+            pass
+
         app = book = None
         try:
             app = win32com.client.DispatchEx("Excel.Application")
@@ -151,7 +160,13 @@ class ExcelCOM(Backend):
                 except Exception:
                     pass
             del book, app
-            pythoncom.CoUninitialize()
+            # `del` only drops the name. If a COM proxy is finalised after
+            # CoUninitialize it faults, which surfaces as the "Windows fatal
+            # exception" faulthandler prints during shutdown. Collect first so
+            # every proxy is released while COM is still up.
+            gc.collect()
+            if initialised:
+                pythoncom.CoUninitialize()
         return dst
 
 

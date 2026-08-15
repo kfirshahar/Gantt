@@ -1,7 +1,7 @@
 # Roadmap — Appendix A and B
 
 Date: 2026-08-15
-Status: proposed, not started
+Status: Phase 0 complete and verified on the target machine; Phases 1-6 proposed
 
 Decisions taken (Appendix A): `% done` is needed; `Done` work appears in the
 Gantt where it actually happened; the field-ownership split is confirmed; real
@@ -115,18 +115,29 @@ script. Per Appendix B, Claude specifies; the target agent implements.
 
 ## Phases
 
-### Phase 0 — Portability and handover
+### Phase 0 — Portability and handover — **DONE**
 
-- Replace the hardcoded `SOFFICE` with backend discovery, and add the Excel COM
-  backend for Windows.
-- `requirements.txt` (openpyxl, pytest, and pywin32 marked Windows-only) and a
-  minimal `pyproject.toml` declaring `requires-python >= 3.10`.
-- `.gitattributes` normalising line endings.
-- README section for Windows: `PYTHONUTF8=1`, venv creation, how to select a
-  recalc backend.
-- Create the GitHub remote and push all seven commits.
+Delivered: pluggable recalculation backend (`GANTT_RECALC`, `GANTT_SOFFICE`)
+with Excel over COM preferred on Windows and LibreOffice as fallback;
+`python -m gantt.recalc` proving which engine really ran; dependency manifests;
+`.gitattributes`; a Windows README section; and the repository pushed to
+`github.com/kfirshahar/Gantt`.
 
-Size: S. Nothing after this is verifiable on the target machine without it.
+Verified on the target machine: Python 3.12, Office 2019, Excel COM confirmed by
+the `docProps/app.xml` fingerprint reading "Microsoft Excel", 38 tests passing
+with no warnings.
+
+**It also found a bug that had nothing to do with portability.** Excel dropped 8
+of the workbook's 37 conditional-format ranges the first time it saved the file,
+because classic conditional formatting cannot reference another worksheet and
+Excel promotes any rule that does into an x14 extension openpyxl neither reads
+nor preserves. Nine rules reached into `CalcWeek`/`CalcDay`; each sheet now
+mirrors the flag it needs into a hidden row of its own.
+
+That is worth recording because it was **the risk this roadmap named for Phase
+2, discovered before Phase 2 was written**. Had import been built first, it would
+have silently stripped the colours from a user's workbook and the cause would
+have been considerably harder to find.
 
 ### Phase 1 — Export XLSX → JSON (schema v1)
 
@@ -141,10 +152,12 @@ Size: S. Protects the live data before anything else moves.
 
 ### Phase 2 — Import JSON → XLSX, and rebuild (schema v1)
 
-Verified feasible: an openpyxl load/save round-trip preserves all 43 defined
-names, 37 conditional-format ranges, 8 validations, 9 differential styles and
-both hidden sheets. Import writes values into the user's own file, so their
-formatting and notes survive.
+Verified feasible on both platforms. An openpyxl load/save round-trip preserves
+all defined names, conditional-format ranges, validations, differential styles
+and hidden sheets — and since Phase 0 removed the cross-sheet rules, that now
+holds for a workbook Excel has saved too, which is the case that matters.
+Import writes values into the user's own file, so their formatting and notes
+survive.
 
 - Match by ID; unknown IDs appended, known IDs updated in place.
 - **Field ownership** (confirmed): JSON owns observed facts — status, % done,
@@ -220,7 +233,7 @@ Size: M for the specification.
 
 ```
 0 Portability ──► 1 Export ──► 2 Import/rebuild ──► 3 Status ──► 4 Actuals ──► 5 Diagnostics ──► 6 Skill spec
-  + push to git    (v4 data)     (round-trip)        (schema v2)   (history)     (actionable)      (Opencode)
+    DONE           (v4 data)     (round-trip)        (schema v2)   (history)     (actionable)      (Opencode)
 ```
 
 Phase 0 first because the target machine cannot verify anything until the suite
