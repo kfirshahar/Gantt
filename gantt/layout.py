@@ -6,6 +6,10 @@ that formulas built in other modules never hard-code an address.
 
 from openpyxl.utils import get_column_letter
 
+# Bumped whenever a column moves. Stamped into every workbook so a later reader
+# knows which layout it is looking at rather than assuming the current one.
+SCHEMA_VERSION = 2
+
 # --- Sheet names -----------------------------------------------------------
 
 GUIDE = "Guide"

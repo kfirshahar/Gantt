@@ -7,6 +7,7 @@ from openpyxl import Workbook
 from . import (layout as L, names as N, sheet_calc, sheet_guide, sheet_inputs,
                sheet_views, sheet_work)
 
+
 SHEET_ORDER = [
     L.GUIDE,
     L.GANTT_HIGH, L.GANTT_DEEP,
@@ -48,7 +49,7 @@ def build(path: str | Path, sizes: dict | None = None) -> Path:
 
     # Defined names must exist before any formula that references them is
     # written, so that a round-trip through openpyxl resolves cleanly.
-    N.register(wb)
+    N.register(wb, L.SCHEMA_VERSION)
 
     for name, builder in BUILDERS.items():
         builder(wb[name])

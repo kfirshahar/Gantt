@@ -150,7 +150,27 @@ SIZE_NAMES = {
 }
 
 
-def register(wb) -> None:
+SCHEMA_NAME = "TplSchemaVersion"
+
+
+def read_schema_version(wb) -> int:
+    """Which layout this workbook was built with.
+
+    Column positions move between versions, so a reader that assumes the current
+    one will pull whatever now sits where it expects a field to be. Files built
+    before this was recorded are version 1 by definition.
+    """
+    defined = wb.defined_names.get(SCHEMA_NAME)
+    if defined is None:
+        return 1
+    try:
+        return int(str(defined.attr_text).strip().strip('"'))
+    except (TypeError, ValueError):
+        return 1
+
+
+def register(wb, schema_version: int = 1) -> None:
+    wb.defined_names.add(DefinedName(SCHEMA_NAME, attr_text=str(schema_version)))
     for name, ref in NAMES.items():
         wb.defined_names.add(DefinedName(name, attr_text=ref))
     for name, attribute in SIZE_NAMES.items():

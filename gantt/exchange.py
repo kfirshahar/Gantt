@@ -29,15 +29,28 @@ from openpyxl import load_workbook
 
 from . import layout as L, names as N
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = L.SCHEMA_VERSION
+
+# What a pre-v2 file's sub-tasks become: not started, nothing done.
+DEFAULT_STATUS = "TODO"
 
 
 def _clean(value: Any) -> Any:
-    """A cell's value, with blanks normalised to None."""
+    """A cell's value, with blanks normalised to None.
+
+    A formula arriving here means an input column was read at a position that
+    holds a derived one — which happens when an older workbook is read with the
+    current column map. Failing loudly beats exporting a formula, or worse its
+    cached result, as though it were data the user had typed.
+    """
     if value is None:
         return None
     if isinstance(value, str):
         stripped = value.strip()
+        if stripped.startswith("="):
+            raise ValueError(
+                f"read a formula where an input was expected: {stripped[:60]!r}. "
+                f"The column map does not match this workbook's schema version.")
         return stripped or None
     return value
 
@@ -169,7 +182,7 @@ def _tasks(wb) -> list[dict]:
     return out
 
 
-def _sub_tasks(wb) -> list[dict]:
+def _sub_tasks(wb, version: int) -> list[dict]:
     """Sub-tasks, with the ID recomputed rather than read.
 
     The workbook builds the ID with a formula, so the cell holds no value until
@@ -178,25 +191,39 @@ def _sub_tasks(wb) -> list[dict]:
     keeps export working on a file that has never been opened in Excel.
     """
     ws = wb[L.SUBTASKS]
+    # Status and % done arrived in v2. In a v1 file those positions hold the
+    # derived Effective assignee and Effort columns, so reading them would
+    # report an assignee as a status and a day count as a percentage.
+    has_progress = version >= 2
+    input_cols = list(L.SUB_INPUT_COLS) if has_progress else \
+        [L.S_PARENT, L.S_NAME, L.S_COMPLEXITY, L.S_ASSIGNEE]
+
     seen: dict[str, int] = {}
     out = []
     for row in range(L.SUB_FIRST_ROW, N.LAST_SUB_ROW + 1):
-        if _row_is_empty(ws, row, L.SUB_INPUT_COLS):
+        if _row_is_empty(ws, row, input_cols):
             continue
         parent = _clean(ws.cell(row=row, column=L.S_PARENT).value)
         index = None
         if parent is not None:
             seen[parent] = seen.get(parent, 0) + 1
             index = seen[parent]
-        out.append({
+        record = {
             "id": f"{parent}.{index:02d}" if parent is not None else None,
             "parent": parent,
             "name": _clean(ws.cell(row=row, column=L.S_NAME).value),
             "complexity": _clean(ws.cell(row=row, column=L.S_COMPLEXITY).value),
             "assignee": _clean(ws.cell(row=row, column=L.S_ASSIGNEE).value),
-            "status": _clean(ws.cell(row=row, column=L.S_STATUS).value),
-            "pct_done": _clean(ws.cell(row=row, column=L.S_PCT_DONE).value),
-        })
+            # Defaulted rather than omitted for a v1 file, so every consumer
+            # sees one shape whatever version it was read from.
+            "status": DEFAULT_STATUS,
+            "pct_done": 0,
+        }
+        if has_progress:
+            record["status"] = (_clean(ws.cell(row=row, column=L.S_STATUS).value)
+                                or DEFAULT_STATUS)
+            record["pct_done"] = _clean(ws.cell(row=row, column=L.S_PCT_DONE).value) or 0
+        out.append(record)
     return out
 
 
@@ -216,13 +243,20 @@ def adopt_sizes(wb) -> dict:
 
 
 def export(path: str | Path) -> dict:
-    """Every input tab of a workbook, as a plain dictionary."""
+    """Every input tab of a workbook, as a plain dictionary.
+
+    Always emits the current schema. Fields a older workbook never had are
+    filled with their defaults, so a consumer sees one shape regardless of what
+    it was read from; `source_schema_version` records what that was.
+    """
     wb = load_workbook(Path(path), data_only=False)
     adopt_sizes(wb)
+    version = N.read_schema_version(wb)
     assignees = _assignees(wb)
 
     return {
         "schema_version": SCHEMA_VERSION,
+        "source_schema_version": version,
         "source": Path(path).name,
         "config": _config(wb),
         "assignees": assignees,
@@ -232,7 +266,7 @@ def export(path: str | Path) -> dict:
                                 "type", "units_by_week_offset"),
         "holidays": _holidays(wb),
         "tasks": _tasks(wb),
-        "sub_tasks": _sub_tasks(wb),
+        "sub_tasks": _sub_tasks(wb, version),
     }
 
 
@@ -520,6 +554,14 @@ def plan(wb, data: dict, mode: str = "merge") -> list[Change]:
     """Every cell the import would write, without writing any of them."""
     if mode not in ("merge", "replace"):
         raise ValueError(f"unknown mode {mode!r}; expected 'merge' or 'replace'")
+
+    target_version = N.read_schema_version(wb)
+    if target_version < SCHEMA_VERSION:
+        raise ValueError(
+            f"this workbook is schema v{target_version} but the tool writes v"
+            f"{SCHEMA_VERSION}. Columns have moved since it was built, so "
+            f"writing to it would land values on formulas. Use `rebuild` to "
+            f"generate a current workbook from the data instead.")
 
     version = data.get("schema_version")
     if version is not None and version > SCHEMA_VERSION:

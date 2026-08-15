@@ -481,3 +481,76 @@ def test_replace_packs_from_the_first_row(tmp_path):
     ws = load_workbook(out)[L.TASKS]
     assert ws.cell(row=L.TASK_FIRST_ROW, column=L.T_ID).value == "NEW-1"
     assert ws.cell(row=L.TASK_FIRST_ROW + 1, column=L.T_ID).value == "NEW-2"
+
+
+def _v1_workbook(tmp_path):
+    """A workbook in the layout that predates Status and % done.
+
+    Reproduces the real failure: those two columns sit where a v1 file keeps its
+    derived Effective assignee and Effort, so reading them reports an assignee
+    as a status and a day count as a percentage.
+    """
+    from openpyxl import Workbook
+
+    from gantt import names as NN
+
+    path = tmp_path / "v1.xlsx"
+    build(path)
+    wb = load_workbook(path)
+    wb.defined_names.add(
+        __import__("openpyxl").workbook.defined_name.DefinedName(
+            NN.SCHEMA_NAME, attr_text="1"))
+    ws = wb[L.SUBTASKS]
+    for row in range(L.SUB_FIRST_ROW, L.SUB_FIRST_ROW + 3):
+        ws.cell(row=row, column=L.S_STATUS).value = "Alice"   # v1: Effective assignee
+        ws.cell(row=row, column=L.S_PCT_DONE).value = 4.17    # v1: Effort (days)
+    wb.save(path)
+    return path
+
+
+def test_an_older_workbook_is_read_with_its_own_column_map(tmp_path):
+    """The columns Status and % done occupy did not exist in v1."""
+    data = exchange.export(_v1_workbook(tmp_path))
+
+    assert data["source_schema_version"] == 1
+    assert data["schema_version"] == exchange.SCHEMA_VERSION
+
+    statuses = {row["status"] for row in data["sub_tasks"]}
+    percentages = {row["pct_done"] for row in data["sub_tasks"]}
+    assert statuses == {exchange.DEFAULT_STATUS}, \
+        f"an old file's derived column leaked into status: {statuses}"
+    assert percentages == {0}, f"a day count leaked into % done: {percentages}"
+
+
+def test_a_formula_never_reaches_the_export(tmp_path):
+    """The blunt guard behind the column-map bug.
+
+    Reading an input column at a position holding a derived one yields either a
+    formula or, in a file Excel has saved, its cached result — which looks like
+    perfectly ordinary data. Refusing the formula case turns a silent wrong
+    answer into an immediate one.
+    """
+    with pytest.raises(ValueError, match="formula"):
+        exchange._clean('=IF($A2="","",$A2)')
+
+
+def test_writing_to_an_out_of_date_workbook_is_refused(tmp_path):
+    """Its columns have moved, so values would land on formulas."""
+    old = _v1_workbook(tmp_path)
+    data = exchange.export(old)
+
+    with pytest.raises(ValueError, match="rebuild"):
+        exchange.import_data(old, data, mode="merge", dry_run=True)
+
+
+def test_migrating_an_older_workbook_defaults_the_new_fields(tmp_path):
+    """The whole backward-compatibility story, end to end."""
+    data = exchange.export(_v1_workbook(tmp_path))
+    out = tmp_path / "migrated.xlsx"
+    exchange.rebuild(data, out)
+
+    migrated = exchange.export(out)
+    assert migrated["source_schema_version"] == exchange.SCHEMA_VERSION
+    assert len(migrated["sub_tasks"]) == len(data["sub_tasks"])
+    assert {r["status"] for r in migrated["sub_tasks"]} == {exchange.DEFAULT_STATUS}
+    assert {r["pct_done"] for r in migrated["sub_tasks"]} == {0}
