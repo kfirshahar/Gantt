@@ -107,6 +107,9 @@ def _config(wb) -> dict:
         "year": _clean(ws.cell(row=L.CFG_YEAR_ROW, column=2).value),
         "start_week": _clean(ws.cell(row=L.CFG_START_WEEK_ROW, column=2).value),
         "horizon_weeks": _clean(ws.cell(row=L.CFG_HORIZON_ROW, column=2).value),
+        # Where "now" is. Absent in workbooks built before the pointer existed,
+        # in which case the cell is simply empty and the default applies.
+        "current_week": _clean(ws.cell(row=L.CFG_CURRENT_WEEK_ROW, column=2).value),
         "complexity": complexity,
         "priorities": priorities,
     }
@@ -544,7 +547,8 @@ def _plan_config(changes, wb, data, mode):
     ws, config = wb[L.CONFIG], data.get("config", {})
     for row, field in ((L.CFG_YEAR_ROW, "year"),
                        (L.CFG_START_WEEK_ROW, "start_week"),
-                       (L.CFG_HORIZON_ROW, "horizon_weeks")):
+                       (L.CFG_HORIZON_ROW, "horizon_weeks"),
+                       (L.CFG_CURRENT_WEEK_ROW, "current_week")):
         if config.get(field) is not None:
             _set(changes, ws, row, 2, field, config[field], "replace")
 

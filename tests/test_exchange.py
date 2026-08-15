@@ -556,3 +556,22 @@ def test_migrating_an_older_workbook_defaults_the_new_fields(tmp_path):
     assert len(migrated["sub_tasks"]) == len(data["sub_tasks"])
     assert {r["status"] for r in migrated["sub_tasks"]} == {exchange.DEFAULT_STATUS}
     assert {r["pct_done"] for r in migrated["sub_tasks"]} == {0}
+
+
+def test_the_current_week_survives_a_rebuild(generated, tmp_path):
+    """It is an input, and losing it silently rewinds the plan.
+
+    A rebuild that dropped it would reset the pointer to whatever the template
+    ships with, quietly moving every task's planned start.
+    """
+    source = tmp_path / "moved.xlsx"
+    wb = load_workbook(generated)
+    wb[L.CONFIG].cell(row=L.CFG_CURRENT_WEEK_ROW, column=2).value = demo.START_WEEK + 7
+    wb.save(source)
+
+    data = exchange.export(source)
+    assert data["config"]["current_week"] == demo.START_WEEK + 7
+
+    out = tmp_path / "rebuilt.xlsx"
+    exchange.rebuild(data, out)
+    assert exchange.export(out)["config"]["current_week"] == demo.START_WEEK + 7
