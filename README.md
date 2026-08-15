@@ -120,6 +120,44 @@ week, since calendar labels live in computed cells:
 {"assignee": "Alice", "days_by_week_offset": [5, 5, 4.5, 5, ...]}
 ```
 
+## Getting the data back in
+
+```sh
+python -m gantt.exchange import plan.xlsx --json update.json --dry-run -v
+python -m gantt.exchange import plan.xlsx --json update.json
+python -m gantt.exchange rebuild plan.json -o new.xlsx
+```
+
+Two modes, because a first ingest and a weekly update want opposite things.
+
+**`merge`** (the default) respects field ownership. The JSON owns facts observed
+in the outside world; the workbook owns planning decisions:
+
+| Owned by the JSON | Owned by the workbook |
+|---|---|
+| task name, category | priority, complexity, equipment |
+| sub-task name | default assignee, earliest start week |
+| the existence of new work | capacity, equipment availability, holidays, config |
+
+Without that rule every weekly import would silently revert whatever you had
+changed since the last one. Ownership only governs *updates* — a row that does
+not exist yet is written in full.
+
+**`replace`** treats the JSON as the whole truth, which is what a first ingest
+needs. `rebuild` generates a fresh workbook and replaces into it, and is the
+version-upgrade path: export from the old template, rebuild with the new, and
+fields the old export never knew about take the generator's defaults.
+
+Two details worth knowing:
+
+- **Sub-tasks match on (parent, name), not on their ID.** Sub-task IDs are
+  positional — `T-01.01` is simply the first `T-01` row from the top — so
+  inserting a row renames every one below it and an update would attach to the
+  wrong work.
+- **A new assignee or equipment type is added even in merge mode.** Referential
+  integrity beats ownership: a task naming an assignee the workbook has never
+  heard of fails its dropdown and schedules nothing.
+
 ## Layout
 
 The workbook opens on a **Guide** tab explaining the fill order, how scheduling

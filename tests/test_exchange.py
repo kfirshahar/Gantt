@@ -133,3 +133,187 @@ def test_cli_writes_a_file(generated, tmp_path):
     out = tmp_path / "plan.json"
     assert exchange._main(["export", str(generated), "-o", str(out)]) == 0
     assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 1
+
+
+# --- Import ----------------------------------------------------------------
+
+def _load(path):
+    return load_workbook(path, data_only=False)
+
+
+def test_rebuild_reproduces_the_data(generated, tmp_path):
+    """export -> rebuild -> export must be a fixed point."""
+    original = exchange.export(generated)
+    out = tmp_path / "rebuilt.xlsx"
+    exchange.rebuild(original, out)
+
+    again = exchange.export(out)
+    original.pop("source"), again.pop("source")
+    assert again == original
+
+
+def test_rebuild_reproduces_the_behaviour(generated, tmp_path):
+    """The rebuilt workbook must *compute* the same, not merely hold the same.
+
+    Value equality is not enough. Export renders dates as ISO strings, and
+    writing one back verbatim leaves text in the cell — Excel then compares text
+    against a date serial, never matches, and silently ignores every holiday.
+    Nothing errors and the export still round-trips; only recalculation shows it.
+    """
+    from gantt import recalc
+
+    backend = recalc.get_backend()
+    if backend is None:
+        pytest.skip(recalc.describe())
+
+    out = tmp_path / "rebuilt.xlsx"
+    exchange.rebuild(exchange.export(generated), out)
+
+    before = load_workbook(backend.recalculate(generated, tmp_path / "a"),
+                           data_only=True)[L.CALC_WEEK]
+    after = load_workbook(backend.recalculate(out, tmp_path / "b"),
+                          data_only=True)[L.CALC_WEEK]
+
+    columns = range(L.CW_FIRST_WEEK_COL, L.CW_FIRST_WEEK_COL + L.WEEK_COLS)
+    workdays_before = [before.cell(row=L.CW_WORKDAYS_ROW, column=c).value for c in columns]
+    workdays_after = [after.cell(row=L.CW_WORKDAYS_ROW, column=c).value for c in columns]
+
+    assert min(workdays_before) < L.WORKDAYS_PER_WEEK, "demo data must contain a holiday"
+    assert workdays_after == workdays_before, "holidays stopped being recognised"
+
+
+def test_merge_keeps_planning_decisions(generated, tmp_path):
+    """The workbook owns priority; an update must not revert the planner."""
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+
+    data = exchange.export(target)
+    data["tasks"][0]["priority"] = "P3"        # as if the source system said so
+    data["tasks"][0]["name"] = "Renamed upstream"
+
+    exchange.import_data(target, data, mode="merge")
+    after = exchange.export(target)
+
+    assert after["tasks"][0]["priority"] == "P1", "merge overwrote a planning decision"
+    assert after["tasks"][0]["name"] == "Renamed upstream", "merge ignored an observed fact"
+
+
+def test_replace_overwrites_everything(generated, tmp_path):
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+
+    data = exchange.export(target)
+    data["tasks"][0]["priority"] = "P3"
+    exchange.import_data(target, data, mode="replace")
+
+    assert exchange.export(target)["tasks"][0]["priority"] == "P3"
+
+
+def test_new_work_is_appended(generated, tmp_path):
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+
+    data = exchange.export(target)
+    data["tasks"].append({
+        "id": "T-99", "name": "Discovered late", "category": "Ops",
+        "priority": "P2", "complexity": "Medium", "equipment": "Rig-A",
+        "default_assignee": "Bob", "earliest_start_week": 35})
+    data["sub_tasks"].append({
+        "parent": "T-99", "name": "Investigate", "complexity": "Simple",
+        "assignee": None})
+
+    exchange.import_data(target, data, mode="merge")
+    after = exchange.export(target)
+
+    assert [t["id"] for t in after["tasks"]][-1] == "T-99"
+    added = [s for s in after["sub_tasks"] if s["parent"] == "T-99"]
+    assert len(added) == 1 and added[0]["complexity"] == "Simple", \
+        "a brand new row must be written in full, ownership notwithstanding"
+
+
+def test_sub_tasks_match_on_parent_and_name(generated, tmp_path):
+    """Positional IDs shift when a row is inserted; the pair does not.
+
+    Matching on the ID would attach this update to whichever row happened to
+    land in that position.
+    """
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+
+    data = exchange.export(target)
+    data["sub_tasks"].insert(0, {"parent": "T-01", "name": "Inserted first",
+                                 "complexity": "Simple", "assignee": None})
+    exchange.import_data(target, data, mode="merge")
+
+    after = exchange.export(target)
+    names = [s["name"] for s in after["sub_tasks"] if s["parent"] == "T-01"]
+    assert "Inserted first" in names
+    assert "Collect requirements" in names, "an existing sub-task was displaced"
+    assert len(names) == 4
+
+
+def test_a_new_assignee_is_added_even_though_merge_owns_them(generated, tmp_path):
+    """Referential integrity beats ownership: a task naming an unknown assignee
+    would fail its dropdown and schedule nothing."""
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+
+    data = exchange.export(target)
+    data["assignees"].append({"name": "Dana", "proficiency": 1.1, "notes": None})
+    exchange.import_data(target, data, mode="merge")
+
+    assert "Dana" in [a["name"] for a in exchange.export(target)["assignees"]]
+
+
+def test_dry_run_writes_nothing(generated, tmp_path):
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+    before = target.read_bytes()
+
+    data = exchange.export(target)
+    data["tasks"][0]["name"] = "Changed"
+    changes = exchange.import_data(target, data, mode="merge", dry_run=True)
+
+    assert changes, "the dry run should have found a change to report"
+    assert target.read_bytes() == before, "dry run modified the workbook"
+
+
+def test_a_newer_schema_is_refused(generated, tmp_path):
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+    data = exchange.export(target)
+    data["schema_version"] = exchange.SCHEMA_VERSION + 1
+
+    with pytest.raises(ValueError, match="schema"):
+        exchange.import_data(target, data, mode="merge", dry_run=True)
+
+
+def test_running_out_of_rows_is_reported(generated, tmp_path):
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+
+    data = exchange.export(target)
+    for i in range(L.MAX_TASKS + 5):
+        data["tasks"].append({"id": f"X-{i:03d}", "name": f"Filler {i}"})
+
+    with pytest.raises(ValueError, match="full"):
+        exchange.import_data(target, data, mode="merge", dry_run=True)
+
+
+def test_import_preserves_formatting(generated, tmp_path):
+    """In-place import must not strip what makes the workbook readable."""
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+
+    def survey(path):
+        wb = load_workbook(path)
+        return (len(wb.defined_names),
+                sum(len(ws.conditional_formatting._cf_rules) for ws in wb.worksheets),
+                sum(len(ws.data_validations.dataValidation) for ws in wb.worksheets))
+
+    before = survey(target)
+    data = exchange.export(target)
+    data["tasks"][0]["name"] = "Changed"
+    exchange.import_data(target, data, mode="merge")
+
+    assert survey(target) == before

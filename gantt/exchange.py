@@ -46,6 +46,22 @@ def _row_is_empty(ws, row: int, columns) -> bool:
     return all(_clean(ws.cell(row=row, column=c).value) is None for c in columns)
 
 
+def _to_excel_date(value: Any) -> Any:
+    """Turn an ISO date string back into a datetime.
+
+    Export renders dates as ISO strings, and writing one back verbatim leaves a
+    cell holding text. Excel compares text against a date serial without ever
+    matching, so every holiday would be silently ignored and every week would
+    look like a full five days. Nothing errors; the plan is just quietly wrong.
+    """
+    if isinstance(value, str):
+        try:
+            return datetime.strptime(value.strip(), "%Y-%m-%d")
+        except ValueError:
+            return value
+    return value
+
+
 def _as_iso(value: Any) -> str | None:
     if isinstance(value, datetime):
         return value.date().isoformat()
@@ -206,6 +222,291 @@ def to_json(data: dict) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False, sort_keys=False)
 
 
+# --- Import ----------------------------------------------------------------
+#
+# Two modes, because first ingest and a weekly update want opposite things.
+#
+# `replace` treats the JSON as the whole truth and is what a first ingest or a
+# rebuild onto a new template version needs.
+#
+# `merge` respects field ownership: the JSON owns facts observed in the outside
+# world, the workbook owns planning decisions. Without that rule every weekly
+# import would silently revert whatever the planner had changed since the last
+# one. A row that does not exist yet is written in full either way — ownership
+# only governs what an *update* may overwrite.
+
+TASK_FIELD_COL = {
+    "id": L.T_ID, "name": L.T_NAME, "category": L.T_CATEGORY,
+    "priority": L.T_PRIORITY, "complexity": L.T_COMPLEXITY,
+    "equipment": L.T_EQUIPMENT, "default_assignee": L.T_DEF_ASSIGNEE,
+    "earliest_start_week": L.T_START_WW,
+}
+SUB_FIELD_COL = {
+    "parent": L.S_PARENT, "name": L.S_NAME,
+    "complexity": L.S_COMPLEXITY, "assignee": L.S_ASSIGNEE,
+}
+
+# Descriptive facts come from the source system; the rest are the planner's.
+TASK_JSON_OWNED = {"name", "category"}
+SUB_JSON_OWNED = {"name"}
+
+
+class Change:
+    """One cell the import intends to write. Collected before anything is."""
+
+    __slots__ = ("sheet", "row", "column", "field", "old", "new", "reason")
+
+    def __init__(self, sheet, row, column, field, old, new, reason):
+        self.sheet, self.row, self.column = sheet, row, column
+        self.field, self.old, self.new, self.reason = field, old, new, reason
+
+    def __repr__(self) -> str:
+        return (f"{self.sheet}!{L.col(self.column)}{self.row} {self.field}: "
+                f"{self.old!r} -> {self.new!r} ({self.reason})")
+
+
+def _set(changes, ws, row, column, field, value, reason):
+    old = _clean(ws.cell(row=row, column=column).value)
+    new = _clean(value)
+    if old != new:
+        changes.append(Change(ws.title, row, column, field, old, new, reason))
+
+
+def _plan_rows(changes, ws, rows, field_col, first_row, last_row,
+               key_of, existing_keys, json_owned, mode):
+    """Update matched rows, append unmatched ones, clear the tail on replace."""
+    free = [r for r in range(first_row, last_row + 1)
+            if r not in existing_keys.values()
+            and _row_is_empty(ws, r, list(field_col.values()))]
+
+    for record in rows:
+        key = key_of(record)
+        row = existing_keys.get(key)
+        inserting = row is None
+        if inserting:
+            if not free:
+                raise ValueError(
+                    f"{ws.title} is full: no free row for {key!r}. The template "
+                    f"pre-builds {last_row - first_row + 1} rows; raise the limit "
+                    f"in gantt/layout.py and rebuild.")
+            row = free.pop(0)
+            existing_keys[key] = row
+
+        for field, column in field_col.items():
+            if field not in record:
+                continue
+            # Ownership only constrains updates; a new row is written in full.
+            if mode == "merge" and not inserting and field not in json_owned:
+                continue
+            _set(changes, ws, row, column, field, record[field],
+                 "insert" if inserting else "update")
+
+
+def _plan_clear(changes, ws, field_col, rows_used, first_row, last_row):
+    for row in range(first_row, last_row + 1):
+        if row in rows_used:
+            continue
+        for field, column in field_col.items():
+            _set(changes, ws, row, column, field, None, "clear")
+
+
+def _plan_tasks(changes, wb, data, mode):
+    ws = wb[L.TASKS]
+    existing = {}
+    for row in range(L.TASK_FIRST_ROW, N.LAST_TASK_ROW + 1):
+        tid = _clean(ws.cell(row=row, column=L.T_ID).value)
+        if tid is not None:
+            existing[tid] = row
+
+    _plan_rows(changes, ws, data.get("tasks", []), TASK_FIELD_COL,
+               L.TASK_FIRST_ROW, N.LAST_TASK_ROW,
+               lambda r: r["id"], existing, TASK_JSON_OWNED, mode)
+    if mode == "replace":
+        _plan_clear(changes, ws, TASK_FIELD_COL, set(existing.values()),
+                    L.TASK_FIRST_ROW, N.LAST_TASK_ROW)
+
+
+def _plan_sub_tasks(changes, wb, data, mode):
+    """Matched on (parent, name), not on the ID.
+
+    Sub-task IDs are positional — T-01.01 is simply the first T-01 row from the
+    top — so inserting a row silently renames every one below it. Matching on
+    them would attach an update to the wrong work. The pair is stable under
+    insertion and reordering, and names are unique within a parent in practice.
+    """
+    ws = wb[L.SUBTASKS]
+    existing = {}
+    for row in range(L.SUB_FIRST_ROW, N.LAST_SUB_ROW + 1):
+        parent = _clean(ws.cell(row=row, column=L.S_PARENT).value)
+        name = _clean(ws.cell(row=row, column=L.S_NAME).value)
+        if parent is not None:
+            existing[(parent, name)] = row
+
+    _plan_rows(changes, ws, data.get("sub_tasks", []), SUB_FIELD_COL,
+               L.SUB_FIRST_ROW, N.LAST_SUB_ROW,
+               lambda r: (r["parent"], r.get("name")), existing, SUB_JSON_OWNED, mode)
+    if mode == "replace":
+        _plan_clear(changes, ws, SUB_FIELD_COL, set(existing.values()),
+                    L.SUB_FIRST_ROW, N.LAST_SUB_ROW)
+
+
+def _plan_reference(changes, wb, data, mode):
+    """Assignees, Equipment and Holidays.
+
+    On merge these are the planner's to own, so existing entries are never
+    rewritten — but a missing one is appended anyway. A new task naming an
+    assignee the workbook has never heard of would otherwise fail its dropdown
+    and schedule nothing, which is a worse outcome than adding the row.
+    """
+    ws = wb[L.ASSIGNEES]
+    fields = {"name": 1, "proficiency": 2, "notes": 3}
+    existing = {}
+    for row in range(L.GRID_FIRST_DATA_ROW, N.LAST_ASG_ROW + 1):
+        name = _clean(ws.cell(row=row, column=1).value)
+        if name is not None:
+            existing[name] = row
+    _plan_rows(changes, ws, data.get("assignees", []), fields,
+               L.GRID_FIRST_DATA_ROW, N.LAST_ASG_ROW,
+               lambda r: r["name"], existing, set(), mode)
+    if mode == "replace":
+        _plan_clear(changes, ws, fields, set(existing.values()),
+                    L.GRID_FIRST_DATA_ROW, N.LAST_ASG_ROW)
+
+    ws = wb[L.EQUIPMENT]
+    existing = {}
+    for row in range(L.GRID_FIRST_DATA_ROW, N.LAST_EQP_ROW + 1):
+        name = _clean(ws.cell(row=row, column=1).value)
+        if name is not None:
+            existing[name] = row
+    _plan_rows(changes, ws, data.get("equipment", []), {"type": 1},
+               L.GRID_FIRST_DATA_ROW, N.LAST_EQP_ROW,
+               lambda r: r["type"], existing, set(), mode)
+
+    if mode == "replace":
+        ws = wb[L.HOLIDAYS]
+        rows = data.get("holidays", [])
+        for i in range(L.MAX_HOLIDAYS):
+            row = L.GRID_FIRST_DATA_ROW + i
+            record = rows[i] if i < len(rows) else {}
+            _set(changes, ws, row, 1, "date",
+                 _to_excel_date(record.get("date")), "replace")
+            _set(changes, ws, row, 2, "name", record.get("name"), "replace")
+
+
+def _plan_week_grids(changes, wb, data, mode):
+    """Capacity and equipment availability. Planning data, so merge never
+    touches them; the planner decides who is available when."""
+    if mode != "replace":
+        return
+
+    order = [a["name"] for a in data.get("assignees", [])]
+    for i, name in enumerate(order):
+        series = next((c["days_by_week_offset"] for c in data.get("capacity", [])
+                       if c["assignee"] == name), [])
+        row = L.GRID_FIRST_DATA_ROW + i
+        for w in range(L.WEEK_COLS):
+            value = series[w] if w < len(series) else None
+            _set(changes, wb[L.CAPACITY], row, L.GRID_FIRST_WEEK_COL + w,
+                 f"week+{w}", value, "replace")
+
+    for i, record in enumerate(data.get("equipment", [])):
+        series = record.get("units_by_week_offset", [])
+        row = L.GRID_FIRST_DATA_ROW + i
+        for w in range(L.WEEK_COLS):
+            value = series[w] if w < len(series) else None
+            _set(changes, wb[L.EQUIPMENT], row, L.GRID_FIRST_WEEK_COL + w,
+                 f"week+{w}", value, "replace")
+
+
+def _plan_config(changes, wb, data, mode):
+    if mode != "replace":
+        return
+    ws, config = wb[L.CONFIG], data.get("config", {})
+    for row, field in ((L.CFG_YEAR_ROW, "year"),
+                       (L.CFG_START_WEEK_ROW, "start_week"),
+                       (L.CFG_HORIZON_ROW, "horizon_weeks")):
+        if config.get(field) is not None:
+            _set(changes, ws, row, 2, field, config[field], "replace")
+
+    for i in range(L.CFG_COMPLEXITY_COUNT):
+        row = L.CFG_COMPLEXITY_FIRST + i
+        entry = config.get("complexity", [])
+        record = entry[i] if i < len(entry) else {}
+        _set(changes, ws, row, 1, "complexity", record.get("name"), "replace")
+        _set(changes, ws, row, 2, "base_days", record.get("base_days"), "replace")
+
+    for i in range(L.CFG_PRIORITY_COUNT):
+        row = L.CFG_PRIORITY_FIRST + i
+        entry = config.get("priorities", [])
+        record = entry[i] if i < len(entry) else {}
+        _set(changes, ws, row, 1, "priority", record.get("name"), "replace")
+        _set(changes, ws, row, 2, "order", record.get("order"), "replace")
+
+
+def plan(wb, data: dict, mode: str = "merge") -> list[Change]:
+    """Every cell the import would write, without writing any of them."""
+    if mode not in ("merge", "replace"):
+        raise ValueError(f"unknown mode {mode!r}; expected 'merge' or 'replace'")
+
+    version = data.get("schema_version")
+    if version is not None and version > SCHEMA_VERSION:
+        raise ValueError(
+            f"this data is schema v{version} but the tool understands v"
+            f"{SCHEMA_VERSION}. Upgrade the tool, or export again from the "
+            f"version that wrote it.")
+
+    changes: list[Change] = []
+    _plan_config(changes, wb, data, mode)
+    _plan_reference(changes, wb, data, mode)
+    _plan_week_grids(changes, wb, data, mode)
+    _plan_tasks(changes, wb, data, mode)
+    _plan_sub_tasks(changes, wb, data, mode)
+    return changes
+
+
+def apply(wb, changes: list[Change]) -> None:
+    for change in changes:
+        wb[change.sheet].cell(row=change.row, column=change.column).value = change.new
+
+
+def summarise(changes: list[Change]) -> str:
+    if not changes:
+        return "no changes"
+    counts: dict[tuple[str, str], int] = {}
+    for change in changes:
+        counts[(change.sheet, change.reason)] = counts.get((change.sheet, change.reason), 0) + 1
+    lines = [f"{len(changes)} cell(s) would change:"]
+    for (sheet, reason), count in sorted(counts.items()):
+        lines.append(f"  {sheet:12} {reason:8} {count}")
+    return "\n".join(lines)
+
+
+def import_data(workbook: str | Path, data: dict, mode: str = "merge",
+                dry_run: bool = False, output: str | Path | None = None):
+    """Apply JSON to a workbook. Returns the changes, applied unless dry_run."""
+    source = Path(workbook)
+    wb = load_workbook(source, data_only=False)
+    changes = plan(wb, data, mode)
+    if not dry_run:
+        apply(wb, changes)
+        wb.save(Path(output) if output else source)
+    return changes
+
+
+def rebuild(data: dict, output: str | Path):
+    """A fresh workbook from JSON, using the current generator.
+
+    This is the version-upgrade path: export from the old template, rebuild with
+    the new one. Fields the old export never knew about simply take whatever
+    default the generator gives them, so compatibility needs no special casing.
+    """
+    from .build import build
+
+    target = Path(output)
+    build(target)
+    return import_data(target, data, mode="replace")
+
+
 def _main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -219,7 +520,27 @@ def _main(argv: list[str] | None = None) -> int:
     exporter.add_argument("-o", "--output", type=Path,
                           help="file to write; stdout if omitted")
 
+    importer = sub.add_parser(
+        "import", help="apply JSON to an existing workbook")
+    importer.add_argument("workbook", type=Path)
+    importer.add_argument("--json", dest="data", type=Path, required=True)
+    importer.add_argument(
+        "--mode", choices=("merge", "replace"), default="merge",
+        help="merge respects field ownership (default); replace treats the "
+             "JSON as the whole truth")
+    importer.add_argument("--dry-run", action="store_true",
+                          help="report what would change without writing")
+    importer.add_argument("-o", "--output", type=Path,
+                          help="write here instead of in place")
+    importer.add_argument("-v", "--verbose", action="store_true")
+
+    rebuilder = sub.add_parser(
+        "rebuild", help="generate a fresh workbook from JSON")
+    rebuilder.add_argument("data", type=Path)
+    rebuilder.add_argument("-o", "--output", type=Path, required=True)
+
     args = parser.parse_args(argv)
+
     if args.command == "export":
         text = to_json(export(args.workbook))
         if args.output:
@@ -227,8 +548,25 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"wrote {args.output}")
         else:
             print(text)
-    return 0
 
+    elif args.command == "import":
+        data = json.loads(args.data.read_text(encoding="utf-8"))
+        changes = import_data(args.workbook, data, mode=args.mode,
+                              dry_run=args.dry_run, output=args.output)
+        print(summarise(changes))
+        if args.verbose:
+            for change in changes:
+                print(f"  {change}")
+        if args.dry_run:
+            print("\ndry run: nothing was written")
+        else:
+            print(f"wrote {args.output or args.workbook}")
+
+    elif args.command == "rebuild":
+        data = json.loads(args.data.read_text(encoding="utf-8"))
+        changes = rebuild(data, args.output)
+        print(f"{summarise(changes)}\nwrote {args.output}")
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(_main())

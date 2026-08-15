@@ -1,7 +1,7 @@
 # Roadmap — Appendix A and B
 
 Date: 2026-08-15
-Status: Phases 0 and 1 complete; Phases 2-6 proposed
+Status: Phases 0, 1 and 2 complete; Phases 3-6 proposed
 
 Decisions taken (Appendix A): `% done` is needed; `Done` work appears in the
 Gantt where it actually happened; the field-ownership split is confirmed; real
@@ -169,7 +169,7 @@ it cannot silently emit stale data.
 
 Size: S. Protects the live data before anything else moves.
 
-### Phase 2 — Import JSON → XLSX, and rebuild (schema v1)
+### Phase 2 — Import JSON → XLSX, and rebuild (schema v1) — **DONE**
 
 Verified feasible on both platforms. An openpyxl load/save round-trip preserves
 all defined names, conditional-format ranges, validations, differential styles
@@ -252,8 +252,17 @@ Size: M for the specification.
 
 ```
 0 Portability ──► 1 Export ──► 2 Import/rebuild ──► 3 Status ──► 4 Actuals ──► 5 Diagnostics ──► 6 Skill spec
-    DONE            DONE          (round-trip)       (schema v2)   (history)     (actionable)      (Opencode)
+    DONE            DONE            DONE             (schema v2)   (history)     (actionable)      (Opencode)
 ```
+
+Phase 2 added one lesson worth carrying forward: **a value round-trip is not a
+behaviour round-trip**. Export renders dates as ISO strings, and writing one
+back verbatim left text in the Holidays cells. Excel compares text against a
+date serial without ever matching, so every holiday was silently ignored and
+every week looked like a full five days — while `export -> rebuild -> export`
+remained a perfect fixed point, because export normalised both sides to strings.
+Only recalculating the rebuilt file exposed it. There is now a test that
+recalculates and compares the working-day row rather than the cell values.
 
 Phase 0 first because the target machine cannot verify anything until the suite
 runs there. Phases 1–2 are insurance for the live v4 data. Phases 3–5 deliver
