@@ -317,3 +317,52 @@ def test_import_preserves_formatting(generated, tmp_path):
     exchange.import_data(target, data, mode="merge")
 
     assert survey(target) == before
+
+
+def test_replace_removes_what_the_json_does_not_mention(generated, tmp_path):
+    """Rebuilding onto a fresh template must not leave the demo data behind.
+
+    The template ships populated, so a rebuild from real data lands on top of
+    Alice, Bob, Carol, Rig-A and Rig-B. Anything the JSON omits has to be
+    cleared, or a migration silently mixes demo rows into live data — and a
+    stale capacity figure under a cleared name is invisible but still counted.
+    """
+    data = exchange.export(generated)
+    data["assignees"] = data["assignees"][:1]
+    data["capacity"] = data["capacity"][:1]
+    data["equipment"] = data["equipment"][:1]
+    data["tasks"] = data["tasks"][:2]
+    keep = {t["id"] for t in data["tasks"]}
+    data["sub_tasks"] = [s for s in data["sub_tasks"] if s["parent"] in keep]
+
+    out = tmp_path / "smaller.xlsx"
+    exchange.rebuild(data, out)
+    after = exchange.export(out)
+
+    assert [a["name"] for a in after["assignees"]] == ["Alice"]
+    assert [e["type"] for e in after["equipment"]] == ["Rig-A"]
+    assert [t["id"] for t in after["tasks"]] == ["T-01", "T-02"]
+    assert {s["parent"] for s in after["sub_tasks"]} == keep
+
+    ws = load_workbook(out)[L.CAPACITY]
+    for row in range(L.GRID_FIRST_DATA_ROW + 1, L.GRID_FIRST_DATA_ROW + 3):
+        values = [ws.cell(row=row, column=c).value
+                  for c in range(L.GRID_FIRST_WEEK_COL,
+                                 L.GRID_FIRST_WEEK_COL + L.WEEK_COLS)]
+        assert all(v is None for v in values), \
+            f"stale capacity left on row {row} under a cleared assignee"
+
+
+def test_merge_never_removes_anything(generated, tmp_path):
+    """The mirror image: a weekly update that omits a task must not delete it."""
+    target = tmp_path / "plan.xlsx"
+    load_workbook(generated).save(target)
+
+    data = exchange.export(target)
+    data["tasks"] = data["tasks"][:1]
+    data["sub_tasks"] = data["sub_tasks"][:1]
+    exchange.import_data(target, data, mode="merge")
+
+    after = exchange.export(target)
+    assert len(after["tasks"]) == 5, "merge deleted tasks the update did not mention"
+    assert len(after["sub_tasks"]) == 33

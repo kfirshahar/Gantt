@@ -273,12 +273,19 @@ def _set(changes, ws, row, column, field, value, reason):
 
 
 def _plan_rows(changes, ws, rows, field_col, first_row, last_row,
-               key_of, existing_keys, json_owned, mode):
-    """Update matched rows, append unmatched ones, clear the tail on replace."""
+               key_of, existing_keys, json_owned, mode) -> set:
+    """Update matched rows and append unmatched ones.
+
+    Returns the rows this import actually touched. `existing_keys` describes the
+    workbook as it stands, so it is emphatically not that set: a row present in
+    the file but absent from the JSON must be cleared under replace, and using
+    the wrong set here leaves demo data mixed into freshly imported data.
+    """
     free = [r for r in range(first_row, last_row + 1)
             if r not in existing_keys.values()
             and _row_is_empty(ws, r, list(field_col.values()))]
 
+    used = set()
     for record in rows:
         key = key_of(record)
         row = existing_keys.get(key)
@@ -291,6 +298,7 @@ def _plan_rows(changes, ws, rows, field_col, first_row, last_row,
                     f"in gantt/layout.py and rebuild.")
             row = free.pop(0)
             existing_keys[key] = row
+        used.add(row)
 
         for field, column in field_col.items():
             if field not in record:
@@ -300,6 +308,7 @@ def _plan_rows(changes, ws, rows, field_col, first_row, last_row,
                 continue
             _set(changes, ws, row, column, field, record[field],
                  "insert" if inserting else "update")
+    return used
 
 
 def _plan_clear(changes, ws, field_col, rows_used, first_row, last_row):
@@ -318,11 +327,11 @@ def _plan_tasks(changes, wb, data, mode):
         if tid is not None:
             existing[tid] = row
 
-    _plan_rows(changes, ws, data.get("tasks", []), TASK_FIELD_COL,
-               L.TASK_FIRST_ROW, N.LAST_TASK_ROW,
-               lambda r: r["id"], existing, TASK_JSON_OWNED, mode)
+    used = _plan_rows(changes, ws, data.get("tasks", []), TASK_FIELD_COL,
+                      L.TASK_FIRST_ROW, N.LAST_TASK_ROW,
+                      lambda r: r["id"], existing, TASK_JSON_OWNED, mode)
     if mode == "replace":
-        _plan_clear(changes, ws, TASK_FIELD_COL, set(existing.values()),
+        _plan_clear(changes, ws, TASK_FIELD_COL, used,
                     L.TASK_FIRST_ROW, N.LAST_TASK_ROW)
 
 
@@ -342,11 +351,12 @@ def _plan_sub_tasks(changes, wb, data, mode):
         if parent is not None:
             existing[(parent, name)] = row
 
-    _plan_rows(changes, ws, data.get("sub_tasks", []), SUB_FIELD_COL,
-               L.SUB_FIRST_ROW, N.LAST_SUB_ROW,
-               lambda r: (r["parent"], r.get("name")), existing, SUB_JSON_OWNED, mode)
+    used = _plan_rows(changes, ws, data.get("sub_tasks", []), SUB_FIELD_COL,
+                      L.SUB_FIRST_ROW, N.LAST_SUB_ROW,
+                      lambda r: (r["parent"], r.get("name")), existing,
+                      SUB_JSON_OWNED, mode)
     if mode == "replace":
-        _plan_clear(changes, ws, SUB_FIELD_COL, set(existing.values()),
+        _plan_clear(changes, ws, SUB_FIELD_COL, used,
                     L.SUB_FIRST_ROW, N.LAST_SUB_ROW)
 
 
@@ -365,11 +375,11 @@ def _plan_reference(changes, wb, data, mode):
         name = _clean(ws.cell(row=row, column=1).value)
         if name is not None:
             existing[name] = row
-    _plan_rows(changes, ws, data.get("assignees", []), fields,
-               L.GRID_FIRST_DATA_ROW, N.LAST_ASG_ROW,
-               lambda r: r["name"], existing, set(), mode)
+    used = _plan_rows(changes, ws, data.get("assignees", []), fields,
+                      L.GRID_FIRST_DATA_ROW, N.LAST_ASG_ROW,
+                      lambda r: r["name"], existing, set(), mode)
     if mode == "replace":
-        _plan_clear(changes, ws, fields, set(existing.values()),
+        _plan_clear(changes, ws, fields, used,
                     L.GRID_FIRST_DATA_ROW, N.LAST_ASG_ROW)
 
     ws = wb[L.EQUIPMENT]
@@ -378,9 +388,12 @@ def _plan_reference(changes, wb, data, mode):
         name = _clean(ws.cell(row=row, column=1).value)
         if name is not None:
             existing[name] = row
-    _plan_rows(changes, ws, data.get("equipment", []), {"type": 1},
-               L.GRID_FIRST_DATA_ROW, N.LAST_EQP_ROW,
-               lambda r: r["type"], existing, set(), mode)
+    used = _plan_rows(changes, ws, data.get("equipment", []), {"type": 1},
+                      L.GRID_FIRST_DATA_ROW, N.LAST_EQP_ROW,
+                      lambda r: r["type"], existing, set(), mode)
+    if mode == "replace":
+        _plan_clear(changes, ws, {"type": 1}, used,
+                    L.GRID_FIRST_DATA_ROW, N.LAST_EQP_ROW)
 
     if mode == "replace":
         ws = wb[L.HOLIDAYS]
@@ -399,18 +412,23 @@ def _plan_week_grids(changes, wb, data, mode):
     if mode != "replace":
         return
 
+    # Every row in range is written, not just the supplied ones: a row left
+    # untouched keeps whatever numbers were there before, and a stale capacity
+    # figure under a name that has been cleared is invisible but still counted.
     order = [a["name"] for a in data.get("assignees", [])]
-    for i, name in enumerate(order):
-        series = next((c["days_by_week_offset"] for c in data.get("capacity", [])
-                       if c["assignee"] == name), [])
+    capacity = {c["assignee"]: c.get("days_by_week_offset", [])
+                for c in data.get("capacity", [])}
+    for i in range(L.MAX_ASSIGNEES):
+        series = capacity.get(order[i], []) if i < len(order) else []
         row = L.GRID_FIRST_DATA_ROW + i
         for w in range(L.WEEK_COLS):
             value = series[w] if w < len(series) else None
             _set(changes, wb[L.CAPACITY], row, L.GRID_FIRST_WEEK_COL + w,
                  f"week+{w}", value, "replace")
 
-    for i, record in enumerate(data.get("equipment", [])):
-        series = record.get("units_by_week_offset", [])
+    equipment = data.get("equipment", [])
+    for i in range(L.MAX_EQUIPMENT):
+        series = equipment[i].get("units_by_week_offset", []) if i < len(equipment) else []
         row = L.GRID_FIRST_DATA_ROW + i
         for w in range(L.WEEK_COLS):
             value = series[w] if w < len(series) else None
