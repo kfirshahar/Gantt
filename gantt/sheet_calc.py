@@ -86,6 +86,7 @@ def build_calc_week(ws) -> None:
     _task_rollup(ws)
     _assignee_rollup(ws)
     _equipment_demand(ws)
+    _actuals(ws)
     ws.sheet_state = "hidden"
 
 
@@ -139,6 +140,47 @@ def _week_headers(ws) -> None:
         h.font = S.FONT_HDR
 
 
+def _actuals(ws) -> None:
+    """Consumed effort laid out across the weeks it was actually spent in.
+
+    History, not a schedule. It is spread evenly across the recorded span, which
+    is approximate on purpose — the exact shape of work already done is not
+    worth modelling, and pretending otherwise would invite the number to be read
+    as a measurement.
+
+    Clamped to end before the current week so it can never collide with the
+    plan: everything behind the pointer is actual, everything from it forward is
+    planned, and the two are simply added when a view wants a total.
+    """
+    hdr, first = L.CW_ACTUAL_HDR, L.CW_ACTUAL_FIRST
+    S.header_row(ws, hdr, 1, ["Rank", "Sub ID", "Consumed", "From", "To"])
+    for i in range(L.WEEK_COLS):
+        ws.cell(row=hdr, column=L.CW_FIRST_WEEK_COL + i, value=f"=INDEX(CwLabel,{i + 1})")
+
+    current = _current_pos()
+    for i in range(L.MAX_SUBTASKS):
+        r = first + i
+        rank = f"$A{r}"
+        ws.cell(row=r, column=1, value=i + 1)
+        ws.cell(row=r, column=2, value=f'=IFERROR({_pull(rank, "SubID")},"")')
+        ws.cell(row=r, column=3,
+                value=f'=IF($B{r}="",0,IFERROR({_pull(rank, "SubConsumed")}*1,0))')
+        # A missing end means still running, so the band reaches the last
+        # finished week. Both are clamped so a band never crosses into the plan.
+        ws.cell(row=r, column=4, value=(
+            f'=IF($B{r}="",0,IFERROR(MATCH({_pull(rank, "SubActStart")},CwWeeks,0),0))'))
+        ws.cell(row=r, column=5, value=(
+            f'=IF($D{r}=0,0,MIN({current}-1,'
+            f'IFERROR(MATCH({_pull(rank, "SubActEnd")},CwWeeks,0),{current}-1)))'))
+
+        for w in range(L.WEEK_COLS):
+            pos = w + 1
+            ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + w, value=(
+                f'=IF(OR($D{r}=0,$E{r}<$D{r},$C{r}=0),0,'
+                f'IF(AND({pos}>=$D{r},{pos}<=$E{r}),'
+                f'$C{r}/($E{r}-$D{r}+1),0))')).number_format = "0.00"
+
+
 def _task_rollup(ws) -> None:
     """One row per task: that task's allocated days in each week."""
     hdr, first = L.CW_TASKWEEK_HDR, L.CW_TASKWEEK_FIRST
@@ -156,7 +198,9 @@ def _task_rollup(ws) -> None:
             wc = L.col(L.CW_FIRST_WEEK_COL + w)
             ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + w, value=(
                 f'=IF($A{r}="",0,SUMIF(CwParent,$A{r},'
-                f'{wc}${L.CW_FIRST_ROW}:{wc}${N.CW_LAST_ROW}))')).number_format = "0.00"
+                f'{wc}${L.CW_FIRST_ROW}:{wc}${N.CW_LAST_ROW})'
+                f'+SUMIF(CwParent,$A{r},'
+                f'{wc}${L.CW_ACTUAL_FIRST}:{wc}${N.ACT_LAST_ROW}))')).number_format = "0.00"
 
 
 def _assignee_rollup(ws) -> None:
@@ -176,7 +220,9 @@ def _assignee_rollup(ws) -> None:
             wc = L.col(L.CW_FIRST_WEEK_COL + w)
             ws.cell(row=r, column=L.CW_FIRST_WEEK_COL + w, value=(
                 f'=IF($A{r}="",0,SUMIF(CwAssignee,$A{r},'
-                f'{wc}${L.CW_FIRST_ROW}:{wc}${N.CW_LAST_ROW}))')).number_format = "0.00"
+                f'{wc}${L.CW_FIRST_ROW}:{wc}${N.CW_LAST_ROW})'
+                f'+SUMIF(CwAssignee,$A{r},'
+                f'{wc}${L.CW_ACTUAL_FIRST}:{wc}${N.ACT_LAST_ROW}))')).number_format = "0.00"
 
 
 def _equipment_demand(ws) -> None:
@@ -226,8 +272,14 @@ def build_calc_day(ws) -> None:
         for i in range(L.DEEP_DAY_COLS):
             dc = L.col(L.CD_FIRST_DAY_COL + i)
             pos = f"{dc}${L.CD_POS_ROW}"
-            prior = ("0" if i == 0 else
-                     f"SUM($G{r}:{L.col(L.CD_FIRST_DAY_COL + i - 1)}{r})")
+            # Only planned days count towards what this sub-task has already
+            # been given; the history columns to the left are not allocations.
+            prior = ("0" if i == 0 else (
+                f"SUMIF(${L.col(L.CD_FIRST_DAY_COL)}${L.CD_POS_ROW}:"
+                f"${L.col(L.CD_FIRST_DAY_COL + i - 1)}${L.CD_POS_ROW},"
+                f'">="&{_current_pos()},'
+                f"${L.col(L.CD_FIRST_DAY_COL)}{r}:"
+                f"${L.col(L.CD_FIRST_DAY_COL + i - 1)}{r})"))
             claimed = ("0" if r == first else
                        f"SUMIF($C${first}:$C{r - 1},$C{r},{dc}${first}:{dc}{r - 1})")
             # Weekly capacity is already reduced pro-rata, so dividing it by the
@@ -238,10 +290,19 @@ def build_calc_day(ws) -> None:
                     f"/{L.WORKDAYS_PER_WEEK}")
             day_cap = (f'IF(OR({dc}${L.CD_INWINDOW_ROW}=0,{dc}${L.CD_HOLIDAY_ROW}=1),'
                        f'0,{rate})')
+            # Days behind the current week show what was actually spent, taken
+            # from the same weekly history the high-level view uses and divided
+            # across that week's working days. Approximate, and labelled as
+            # history — the point is that both views tell one story.
+            actual = (f'IFERROR(INDEX(ActGrid,$A{r},{pos}),0)'
+                      f'/MAX(1,{dc}${L.CD_WORKDAYS_ROW})')
             ws.cell(row=r, column=L.CD_FIRST_DAY_COL + i, value=(
                 f'=IF($B{r}="",0,IF({dc}${L.CD_INWINDOW_ROW}=0,0,'
+                f'IF({dc}${L.CD_HOLIDAY_ROW}=1,0,'
+                f'IF({pos}<{_current_pos()},{actual},'
                 f'IF({pos}<$E{r},0,'
-                f'MAX(0,MIN($D{r}-{prior},{day_cap}-{claimed})))))')).number_format = "0.00"
+                f'MAX(0,MIN($D{r}-{prior},{day_cap}-{claimed})))))))')
+            ).number_format = "0.00"
 
     ws.sheet_state = "hidden"
 

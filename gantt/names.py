@@ -16,10 +16,10 @@ def refresh() -> None:
     """
     global _LAST_ASG, _LAST_EQP, _LAST_TASK, _LAST_SUB, _LAST_HOL
     global _LAST_WEEK_COL, _CW_LAST_WEEK_COL, _CW_LAST_ROW, _TW_LAST_ROW
-    global _AW_LAST_ROW, _EQD_LAST_ROW, NAMES
+    global _AW_LAST_ROW, _EQD_LAST_ROW, _ACT_LAST_ROW, NAMES
     global LAST_ASG_ROW, LAST_EQP_ROW, LAST_TASK_ROW, LAST_SUB_ROW
     global LAST_HOL_ROW, LAST_WEEK_COL, CW_LAST_WEEK_COL, CW_LAST_ROW
-    global TW_LAST_ROW, AW_LAST_ROW, EQD_LAST_ROW
+    global TW_LAST_ROW, AW_LAST_ROW, EQD_LAST_ROW, ACT_LAST_ROW
 
     _LAST_ASG = L.GRID_FIRST_DATA_ROW + L.MAX_ASSIGNEES - 1
     _LAST_EQP = L.GRID_FIRST_DATA_ROW + L.MAX_EQUIPMENT - 1
@@ -32,6 +32,7 @@ def refresh() -> None:
     _TW_LAST_ROW = L.CW_TASKWEEK_FIRST + L.MAX_TASKS - 1
     _AW_LAST_ROW = L.CW_AWWEEK_FIRST + L.MAX_ASSIGNEES - 1
     _EQD_LAST_ROW = L.CW_EQPWEEK_FIRST + L.MAX_EQUIPMENT - 1
+    _ACT_LAST_ROW = L.CW_ACTUAL_FIRST + L.MAX_SUBTASKS - 1
 
     NAMES = {
         # Config
@@ -82,6 +83,12 @@ def refresh() -> None:
                                     L.S_REMAINING, _LAST_SUB),
         "SubStatus": L.abs_range(L.SUBTASKS, L.S_STATUS, L.SUB_FIRST_ROW,
                                  L.S_STATUS, _LAST_SUB),
+        "SubConsumed": L.abs_range(L.SUBTASKS, L.S_CONSUMED, L.SUB_FIRST_ROW,
+                                   L.S_CONSUMED, _LAST_SUB),
+        "SubActStart": L.abs_range(L.SUBTASKS, L.S_ACT_START, L.SUB_FIRST_ROW,
+                                   L.S_ACT_START, _LAST_SUB),
+        "SubActEnd": L.abs_range(L.SUBTASKS, L.S_ACT_END, L.SUB_FIRST_ROW,
+                                 L.S_ACT_END, _LAST_SUB),
         "SubKey": L.abs_range(L.SUBTASKS, L.S_KEY, L.SUB_FIRST_ROW, L.S_KEY, _LAST_SUB),
         "SubRank": L.abs_range(L.SUBTASKS, L.S_RANK, L.SUB_FIRST_ROW, L.S_RANK, _LAST_SUB),
         # CalcWeek
@@ -114,6 +121,8 @@ def refresh() -> None:
                               _CW_LAST_WEEK_COL, _AW_LAST_ROW),
         "EqDemand": L.abs_range(L.CALC_WEEK, L.CW_FIRST_WEEK_COL, L.CW_EQPWEEK_FIRST,
                                 _CW_LAST_WEEK_COL, _EQD_LAST_ROW),
+        "ActGrid": L.abs_range(L.CALC_WEEK, L.CW_FIRST_WEEK_COL, L.CW_ACTUAL_FIRST,
+                               _CW_LAST_WEEK_COL, _ACT_LAST_ROW),
         # Gantt-Deep window inputs
         "DeepStartWeek": f"{L.sheet_ref(L.GANTT_DEEP)}!${L.GD_WINDOW_START_CELL[0]}${L.GD_WINDOW_START_CELL[1:]}",
         "DeepWeeks": f"{L.sheet_ref(L.GANTT_DEEP)}!${L.GD_WINDOW_WEEKS_CELL[0]}${L.GD_WINDOW_WEEKS_CELL[1:]}",
@@ -131,6 +140,7 @@ def refresh() -> None:
     TW_LAST_ROW = _TW_LAST_ROW
     AW_LAST_ROW = _AW_LAST_ROW
     EQD_LAST_ROW = _EQD_LAST_ROW
+    ACT_LAST_ROW = _ACT_LAST_ROW
 
 
 refresh()

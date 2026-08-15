@@ -114,7 +114,8 @@ def test_no_derived_column_leaks_into_the_export(data):
     """Derived values would be stale the moment anything upstream changed."""
     for row in data["sub_tasks"]:
         assert set(row) == {"id", "parent", "name", "complexity", "assignee",
-                            "status", "pct_done"}
+                            "status", "pct_done",
+                            "actual_start_week", "actual_end_week"}
     for row in data["tasks"]:
         assert "effort" not in row and "check" not in row and "start_ww" not in row
         assert "remaining" not in row and "status" not in row
@@ -136,7 +137,8 @@ def test_blank_rows_are_skipped(data):
 def test_cli_writes_a_file(generated, tmp_path):
     out = tmp_path / "plan.json"
     assert exchange._main(["export", str(generated), "-o", str(out)]) == 0
-    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 2
+    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == \
+        exchange.SCHEMA_VERSION
 
 
 # --- Import ----------------------------------------------------------------

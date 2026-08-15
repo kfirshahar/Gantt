@@ -14,6 +14,7 @@ WARN = "FDE9C9"
 OK = "D8EFD8"
 BAR = "9FC5E8"
 WEEKEND = "EEF1F4"
+ACTUAL = "CBD5DC"      # history: settled, deliberately duller than the plan
 
 FILL_INPUT_HDR = PatternFill("solid", fgColor=BAND_INPUT)
 FILL_OUTPUT_HDR = PatternFill("solid", fgColor=BAND_OUTPUT)
@@ -51,6 +52,7 @@ CF_WARN = cf_fill(WARN)
 CF_OK = cf_fill(OK)
 CF_BAR = cf_fill(BAR)
 CF_WEEKEND = cf_fill(WEEKEND)
+CF_ACTUAL = cf_fill(ACTUAL)
 
 FONT_TITLE = Font(bold=True, size=14, color=INK)
 FONT_HDR = Font(bold=True, size=10, color="FFFFFF")

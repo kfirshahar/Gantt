@@ -20,6 +20,11 @@ def build_gantt_high(ws) -> None:
     last_week_col = GH_WEEK_COL + L.WEEK_COLS - 1
     S.write_flag_row(ws, GH_WEEK_COL, L.WEEK_COLS, L.GH_FLAG_ROW,
                      lambda i: f"INDEX(CwActive,{i + 1})")
+    # Which weeks are history. Conditional formatting has to read this from its
+    # own sheet, and it is what tells actual apart from planned in every block.
+    S.write_flag_row(
+        ws, GH_WEEK_COL, L.WEEK_COLS, L.GH_HIST_ROW,
+        lambda i: f"IF({i + 1}<IFERROR(MATCH(CfgCurrentWeek,CwWeeks,0),1),1,0)")
     load_last = _assignee_load(ws, last_week_col)
     timeline_last = _task_timeline(ws, load_last + 2, last_week_col)
     equip_last = _equipment_block(ws, timeline_last + 2, last_week_col)
@@ -142,10 +147,16 @@ def _task_timeline(ws, start_row: int, last_col: int) -> int:
     # empty cell and paints the whole grid. LibreOffice disagrees and returns
     # FALSE, so this cannot be caught by recalculating there.
     bar = f"{L.col(GH_WEEK_COL)}{first}"
-    ws.conditional_formatting.add(
-        f"{bar}:{L.col(last_col)}{last}",
-        Rule(type="expression", dxf=DifferentialStyle(fill=S.CF_BAR),
-             formula=[f"AND(ISNUMBER({bar}),{bar}>0)"]))
+    hist = f"{L.col(GH_WEEK_COL)}${L.GH_HIST_ROW}"
+    span = f"{bar}:{L.col(last_col)}{last}"
+    # Two mutually exclusive rules rather than one plus an override, so nothing
+    # depends on which order Excel happens to evaluate them in.
+    ws.conditional_formatting.add(span, Rule(
+        type="expression", dxf=DifferentialStyle(fill=S.CF_ACTUAL),
+        formula=[f"AND(ISNUMBER({bar}),{bar}>0,{hist}=1)"]))
+    ws.conditional_formatting.add(span, Rule(
+        type="expression", dxf=DifferentialStyle(fill=S.CF_BAR),
+        formula=[f"AND(ISNUMBER({bar}),{bar}>0,{hist}=0)"]))
     S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, L.GH_FLAG_ROW)
     return last
 
@@ -270,6 +281,11 @@ def build_gantt_deep(ws) -> None:
         ws, GD_DAY_COL, L.DEEP_DAY_COLS, L.GD_FLAG_ROW,
         lambda i: (f"{L.sheet_ref(L.CALC_DAY)}!"
                    f"{L.col(L.CD_FIRST_DAY_COL + i)}${L.CD_INWINDOW_ROW}"))
+    S.write_flag_row(
+        ws, GD_DAY_COL, L.DEEP_DAY_COLS, L.GD_HIST_ROW,
+        lambda i: (f"IF({L.sheet_ref(L.CALC_DAY)}!"
+                   f"{L.col(L.CD_FIRST_DAY_COL + i)}${L.CD_POS_ROW}"
+                   f"<IFERROR(MATCH(CfgCurrentWeek,CwWeeks,0),1),1,0)"))
     _deep_headers(ws)
     _deep_rows(ws)
 
@@ -347,9 +363,13 @@ def _deep_rows(ws) -> None:
     # Same reason as the task timeline: an idle day holds "" and Excel treats
     # text as greater than any number.
     bar = f"{L.col(GD_DAY_COL)}{GD_FIRST_ROW}"
+    hist = f"{L.col(GD_DAY_COL)}${L.GD_HIST_ROW}"
+    ws.conditional_formatting.add(body, Rule(
+        type="expression", dxf=DifferentialStyle(fill=S.CF_ACTUAL),
+        formula=[f"AND(ISNUMBER({bar}),{bar}>0,{hist}=1)"]))
     ws.conditional_formatting.add(body, Rule(
         type="expression", dxf=DifferentialStyle(fill=S.CF_BAR),
-        formula=[f"AND(ISNUMBER({bar}),{bar}>0)"]))
+        formula=[f"AND(ISNUMBER({bar}),{bar}>0,{hist}=0)"]))
     ws.conditional_formatting.add(body, Rule(
         type="expression", dxf=DifferentialStyle(fill=S.CF_WEEKEND),
         formula=[f"{L.col(GD_DAY_COL)}${L.GD_FLAG_ROW}=0"]))

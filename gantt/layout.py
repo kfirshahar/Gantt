@@ -8,7 +8,7 @@ from openpyxl.utils import get_column_letter
 
 # Bumped whenever a column moves. Stamped into every workbook so a later reader
 # knows which layout it is looking at rather than assuming the current one.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # --- Sheet names -----------------------------------------------------------
 
@@ -123,12 +123,18 @@ S_COMPLEXITY = 4
 S_ASSIGNEE = 5
 S_STATUS = 6
 S_PCT_DONE = 7
-S_EFF_ASSIGNEE = 8
-S_EFFORT = 9
-S_REMAINING = 10
-S_KEY = 11
-S_RANK = 12
-S_CHECK = 13
+# When the work really happened. A spreadsheet cannot observe that a sub-task
+# started last Tuesday — there is no state without macros — so actuals are
+# recorded, not derived.
+S_ACT_START = 8
+S_ACT_END = 9
+S_EFF_ASSIGNEE = 10
+S_EFFORT = 11
+S_REMAINING = 12
+S_CONSUMED = 13
+S_KEY = 14
+S_RANK = 15
+S_CHECK = 16
 SUB_FIRST_ROW = 2
 
 SUB_HEADERS = {
@@ -139,15 +145,19 @@ SUB_HEADERS = {
     S_ASSIGNEE: "Assignee (blank = inherit)",
     S_STATUS: "Status",
     S_PCT_DONE: "% done",
+    S_ACT_START: "Actual start WW",
+    S_ACT_END: "Actual end WW",
     S_EFF_ASSIGNEE: "Effective assignee",
     S_EFFORT: "Effort (days)",
     S_REMAINING: "Remaining (days)",
+    S_CONSUMED: "Consumed (days)",
     S_KEY: "Sort key",
     S_RANK: "Rank",
     S_CHECK: "Check",
 }
-SUB_INPUT_COLS = [S_PARENT, S_NAME, S_COMPLEXITY, S_ASSIGNEE, S_STATUS, S_PCT_DONE]
-SUB_DERIVED_COLS = [S_ID, S_EFF_ASSIGNEE, S_EFFORT, S_REMAINING,
+SUB_INPUT_COLS = [S_PARENT, S_NAME, S_COMPLEXITY, S_ASSIGNEE, S_STATUS,
+                  S_PCT_DONE, S_ACT_START, S_ACT_END]
+SUB_DERIVED_COLS = [S_ID, S_EFF_ASSIGNEE, S_EFFORT, S_REMAINING, S_CONSUMED,
                     S_KEY, S_RANK, S_CHECK]
 
 # --- CalcWeek sheet --------------------------------------------------------
@@ -198,6 +208,7 @@ CD_FIRST_DAY_COL = 7         # column G
 # --- Gantt-Deep window inputs ---------------------------------------------
 
 GD_FLAG_ROW = 5              # mirrors CalcDay's in-window flags
+GD_HIST_ROW = 6              # 1 where the day is behind the current week
 GD_WINDOW_START_CELL = "B3"
 GD_WINDOW_WEEKS_CELL = "B4"
 
@@ -215,9 +226,9 @@ def derive() -> None:
     defaults. Anything sized has to be derived here instead, or configuring a
     larger workbook lays blocks on top of each other.
     """
-    global DEEP_DAY_COLS, GRID_FLAG_ROW, GH_FLAG_ROW
+    global DEEP_DAY_COLS, GRID_FLAG_ROW, GH_FLAG_ROW, GH_HIST_ROW
     global CW_TASKWEEK_HDR, CW_TASKWEEK_FIRST, CW_AWWEEK_HDR, CW_AWWEEK_FIRST
-    global CW_EQPWEEK_HDR, CW_EQPWEEK_FIRST
+    global CW_EQPWEEK_HDR, CW_EQPWEEK_FIRST, CW_ACTUAL_HDR, CW_ACTUAL_FIRST
 
     DEEP_DAY_COLS = MAX_DEEP_WEEKS * WORKDAYS_PER_WEEK
 
@@ -228,6 +239,7 @@ def derive() -> None:
     GRID_FLAG_ROW = GRID_FIRST_DATA_ROW + max(MAX_ASSIGNEES, MAX_EQUIPMENT) + 4
     GH_FLAG_ROW = (6 + 2 * MAX_ASSIGNEES + 2 + MAX_TASKS + 2
                    + 2 * MAX_EQUIPMENT + 16)
+    GH_HIST_ROW = GH_FLAG_ROW + 1   # 1 where the week is behind the current one
 
     CW_TASKWEEK_HDR = CW_FIRST_ROW + MAX_SUBTASKS + 2
     CW_TASKWEEK_FIRST = CW_TASKWEEK_HDR + 1
@@ -235,6 +247,13 @@ def derive() -> None:
     CW_AWWEEK_FIRST = CW_AWWEEK_HDR + 1
     CW_EQPWEEK_HDR = CW_AWWEEK_FIRST + MAX_ASSIGNEES + 2
     CW_EQPWEEK_FIRST = CW_EQPWEEK_HDR + 1
+
+    # Consumed effort, laid out per sub-task rank exactly like the planning
+    # grid. Deliberately a separate block: the spill-over algorithm must not
+    # learn that history exists, or it acquires a second code path and the
+    # guarantee that the two Gantt views agree goes with it.
+    CW_ACTUAL_HDR = CW_EQPWEEK_FIRST + MAX_EQUIPMENT + 2
+    CW_ACTUAL_FIRST = CW_ACTUAL_HDR + 1
 
 
 def configure(**overrides) -> None:

@@ -37,6 +37,20 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "6. Tasks — one row per deliverable.",
         "7. Sub-Tasks — the actual work. All effort comes from here.",
     ]),
+    ("Recording what actually happened", [
+        "Actual start WW and Actual end WW on Sub-Tasks are where you say when the "
+        "work really ran. Leave the end blank while it is still going.",
+        "The Gantt then draws history in the weeks behind the current one, in a "
+        "duller colour than the plan, so you can see what was done alongside what "
+        "is still to come. Effort already spent is spread evenly across the "
+        "recorded span — it is history, not a measurement.",
+        "Nothing about history feeds back into scheduling. It sets how much work "
+        "is left and nothing else, which is what keeps the two Gantt views telling "
+        "the same story.",
+        "A past week can therefore show more days used than were available. That "
+        "is not an error: it means the work really did overrun what Capacity said, "
+        "and hiding it would be the wrong answer.",
+    ]),
     ("Where the numbers on Gantt-High come from", [
         "Avail is not simply what you typed on Capacity. It is that figure reduced "
         "pro-rata for company holidays, so a week containing one holiday shows 4/5 of "
@@ -109,6 +123,8 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "you paste a value instead of choosing from the dropdown.",
         "check proficiency — that assignee's proficiency is blank or zero, so effort "
         "cannot be divided by it.",
+        "no actual start — the sub-task is under way or finished but never says "
+        "when it began, so there is nothing to draw as history.",
         "no sub-tasks (Tasks) — the task has no work underneath it, so its effort is zero.",
         "start week not in the grid (Tasks) — the Earliest start WW names no week the "
         "plan covers at all. Check the number.",

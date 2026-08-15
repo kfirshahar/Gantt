@@ -69,9 +69,12 @@ _CYCLE = ["Simple", "Medium", "Complex"]
 
 # A project part-way through, so the demo exercises the states rather than
 # showing every row as untouched: T-01 finished, T-02 under way.
+# (status, % done, actual start WW, actual end WW). A blank end means still
+# running, so the band is drawn up to the current week.
 _PROGRESS = {
-    "T-01": [("Done", 100), ("Done", 100), ("Done", 100)],
-    "T-02": [("Done", 100), ("In Progress", 60), ("In Progress", 25)],
+    "T-01": [("Done", 100, 33, 33), ("Done", 100, 33, 34), ("Done", 100, 34, 34)],
+    "T-02": [("Done", 100, 33, 33), ("In Progress", 60, 34, None),
+             ("In Progress", 25, 34, None)],
 }
 
 
@@ -83,7 +86,8 @@ def subtasks():
         names = _SUB_NAMES.get(tid) or [f"Step {i + 1}" for i in range(n_subs)]
         progress = _PROGRESS.get(tid, [])
         for i in range(n_subs):
-            status, pct = progress[i] if i < len(progress) else ("TODO", 0)
+            status, pct, act_from, act_to = (
+                progress[i] if i < len(progress) else ("TODO", 0, None, None))
             rows.append({
                 "parent": tid,
                 "name": names[i] if i < len(names) else f"Step {i + 1}",
@@ -93,5 +97,7 @@ def subtasks():
                 "assignee": "Alice" if (tid == "T-04" and i == 0) else "",
                 "status": status,
                 "pct_done": pct,
+                "actual_start_week": act_from,
+                "actual_end_week": act_to,
             })
     return rows

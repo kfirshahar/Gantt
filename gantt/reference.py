@@ -21,9 +21,15 @@ class SubTask:
     remaining: float
     key: int
     index: int
+    consumed: float = 0.0
+    actual_start: int | None = None
+    actual_end: int | None = None
     rank: int = 0
     weekly: dict[int, float] = field(default_factory=dict)
     daily: dict[str, float] = field(default_factory=dict)
+    # History, kept apart from `weekly` on purpose: the scheduling algorithm
+    # never sees it, exactly as in the workbook.
+    actual_weekly: dict[int, float] = field(default_factory=dict)
 
 
 def _weeks(horizon: int | None = None) -> list[int]:
@@ -62,7 +68,10 @@ def build_subtasks() -> list[SubTask]:
                + task_row[parent] * 1_000
                + index)
         rows.append(SubTask(parent, name, complexity, assignee, effort, status,
-                            remaining, key, index))
+                            remaining, key, index,
+                            consumed=round(effort - remaining, 4),
+                            actual_start=sub.get("actual_start_week"),
+                            actual_end=sub.get("actual_end_week")))
 
     for rank, row in enumerate(sorted(rows, key=lambda s: s.key), start=1):
         row.rank = rank
@@ -167,22 +176,63 @@ def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int,
 def solve(window_start: int | None = None, window_weeks: int = 4,
           horizon: int | None = None, current_week: int | None = None) -> list[SubTask]:
     rows = schedule_weekly(build_subtasks(), horizon, current_week)
-    return schedule_daily(rows, window_start or demo.START_WEEK, window_weeks,
+    rows = schedule_daily(rows, window_start or demo.START_WEEK, window_weeks,
                           horizon, current_week)
+    return schedule_actuals(rows, horizon, current_week)
+
+
+def schedule_actuals(rows: list[SubTask], horizon: int | None = None,
+                     current_week: int | None = None) -> list[SubTask]:
+    """Spread consumed effort across the weeks it was recorded against.
+
+    Evenly, and clamped to end before the current week, so history and plan
+    never share a column and a view can simply add them.
+    """
+    weeks = _weeks(horizon)
+    holidays = _holidays()
+    current = demo.CURRENT_WEEK if current_week is None else current_week
+    current_pos = weeks.index(current) if current in weeks else 0
+
+    for row in rows:
+        row.actual_weekly = {w: 0.0 for w in weeks}
+        if row.consumed <= 0 or row.actual_start not in weeks:
+            continue
+        start = weeks.index(row.actual_start)
+        end = weeks.index(row.actual_end) if row.actual_end in weeks else current_pos - 1
+        end = min(end, current_pos - 1)
+        if end < start:
+            continue
+
+        share = row.consumed / (end - start + 1)
+        for position in range(start, end + 1):
+            week = weeks[position]
+            row.actual_weekly[week] = share
+            working = [d for d in C.workdays(demo.YEAR, week) if d not in holidays]
+            for day in working:
+                row.daily[day.isoformat()] = share / len(working)
+    return rows
 
 
 def assignee_load(rows: list[SubTask], horizon: int | None = None) -> dict[str, dict[int, float]]:
     out = {name: {w: 0.0 for w in _weeks(horizon)} for name, _ in demo.ASSIGNEES}
+    # What a week actually cost plus what it is planned to cost. Behind the
+    # current week these are history, ahead of it the plan; they never overlap.
     for row in rows:
         for w, v in row.weekly.items():
+            out[row.assignee][w] += v
+        for w, v in row.actual_weekly.items():
             out[row.assignee][w] += v
     return out
 
 
 def task_load(rows: list[SubTask], horizon: int | None = None) -> dict[str, dict[int, float]]:
     out = {t[0]: {w: 0.0 for w in _weeks(horizon)} for t in demo.TASKS}
+    # What a week actually cost plus what it is planned to cost. Behind the
+    # current week these are history, ahead of it the plan; they never overlap.
     for row in rows:
         for w, v in row.weekly.items():
+            out[row.parent][w] += v
+        for w, v in row.actual_weekly.items():
             out[row.parent][w] += v
     return out
 

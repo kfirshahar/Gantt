@@ -51,17 +51,24 @@ def build_tasks(ws) -> None:
         ws.cell(row=r, column=L.T_START_WW, value=start_ww)
 
     for r in range(L.TASK_FIRST_ROW, N.LAST_TASK_ROW + 1):
+        # Letters are looked up rather than written in: a column inserted
+        # anywhere to the left silently rewrites what every hardcoded one means.
+        c_id = L.col(L.T_ID)
+        c_start = L.col(L.T_START_WW)
+        c_subs = L.col(L.T_N_SUBS)
+        c_remaining = L.col(L.T_REMAINING)
+        c_status = L.col(L.T_STATUS)
         tw_row = L.CW_TASKWEEK_FIRST + (r - L.TASK_FIRST_ROW)
         span = (f"{L.sheet_ref(L.CALC_WEEK)}!"
                 f"${L.col(L.CW_FIRST_WEEK_COL)}${tw_row}:${L.col(N.CW_LAST_WEEK_COL)}${tw_row}")
-        effort = f"SUMIF(SubParent,$A{r},SubEffort)"
+        effort = f"SUMIF(SubParent,${c_id}{r},SubEffort)"
 
         ws.cell(row=r, column=L.T_N_SUBS,
-                value=f'=IF($A{r}="","",COUNTIF(SubParent,$A{r}))')
+                value=f'=IF(${c_id}{r}="","",COUNTIF(SubParent,${c_id}{r}))')
         ws.cell(row=r, column=L.T_EFFORT,
-                value=f'=IF($A{r}="","",ROUND({effort},2))').number_format = "0.00"
+                value=f'=IF(${c_id}{r}="","",ROUND({effort},2))').number_format = "0.00"
         ws.cell(row=r, column=L.T_REMAINING,
-                value=f'=IF($A{r}="","",ROUND(SUMIF(SubParent,$A{r},SubRemaining),2))'
+                value=f'=IF(${c_id}{r}="","",ROUND(SUMIF(SubParent,${c_id}{r},SubRemaining),2))'
                 ).number_format = "0.00"
         # Derived the same way effort is: a task's own status column would be a
         # second source of truth that can disagree with what its sub-tasks say.
@@ -71,9 +78,9 @@ def build_tasks(ws) -> None:
         todo_label = f'INDEX(StatusNames,{L.STATUS_TODO})'
         active_label = f'INDEX(StatusNames,{L.STATUS_ACTIVE})'
         ws.cell(row=r, column=L.T_STATUS, value=(
-            f'=IF($A{r}="","",IF($I{r}=0,"",'
-            f'IF(COUNTIFS(SubParent,$A{r},SubStatus,{done_label})=$I{r},{done_label},'
-            f'IF(COUNTIFS(SubParent,$A{r},SubStatus,{todo_label})=$I{r},{todo_label},'
+            f'=IF(${c_id}{r}="","",IF(${c_subs}{r}=0,"",'
+            f'IF(COUNTIFS(SubParent,${c_id}{r},SubStatus,{done_label})=${c_subs}{r},{done_label},'
+            f'IF(COUNTIFS(SubParent,${c_id}{r},SubStatus,{todo_label})=${c_subs}{r},{todo_label},'
             f'{active_label}))))'))
         # Start and end are resolved as grid positions and then rendered through
         # the shared label, so a task running into next year reads WW01 '27
@@ -81,26 +88,26 @@ def build_tasks(ws) -> None:
         start_pos = f'SUMPRODUCT(MIN(({span}>0)*CwPos+({span}<=0)*9999))'
         end_pos = f'SUMPRODUCT(MAX(({span}>0)*CwPos))'
         ws.cell(row=r, column=L.T_CALC_START, value=(
-            f'=IF($A{r}="","",IF(SUM({span})=0,"",'
+            f'=IF(${c_id}{r}="","",IF(SUM({span})=0,"",'
             f'IFERROR(INDEX(CwLabel,{start_pos}),"")))'))
         ws.cell(row=r, column=L.T_CALC_END, value=(
-            f'=IF($A{r}="","",IF(SUM({span})=0,"",'
+            f'=IF(${c_id}{r}="","",IF(SUM({span})=0,"",'
             f'IFERROR(INDEX(CwLabel,{end_pos}),"")))'))
 
         # A start week is valid only if it names one of the built columns *and*
         # that column is inside the horizon.
-        pos = f'IFERROR(MATCH($H{r},CwWeeks,0),0)'
+        pos = f'IFERROR(MATCH(${c_start}{r},CwWeeks,0),0)'
         ws.cell(row=r, column=L.T_CHECK, value=(
-            f'=IF($A{r}="","",'
-            f'IF(COUNTIF(SubParent,$A{r})=0,"⚠ no sub-tasks",'
+            f'=IF(${c_id}{r}="","",'
+            f'IF(COUNTIF(SubParent,${c_id}{r})=0,"⚠ no sub-tasks",'
             # Finished work is checked first and reported as finished. It has no
             # remaining effort, so every test below would flag it — "not
             # scheduled" for a task that is simply done, which is the complaint
             # this phase exists to answer.
-            f'IF($L{r}=INDEX(StatusNames,{L.STATUS_DONE}),"done",'
+            f'IF(${c_status}{r}=INDEX(StatusNames,{L.STATUS_DONE}),"done",'
             f'IF({pos}=0,"⚠ start week not in the grid",'
             f'IF({pos}>CfgHorizon,"⚠ starts beyond the horizon",'
-            f'IF(ROUND($K{r},4)<=0,"in progress",'
+            f'IF(ROUND(${c_remaining}{r},4)<=0,"in progress",'
             f'IF(SUM({span})=0,"⚠ not scheduled",'
             f'IF(ROUND(SUM({span}),4)<ROUND({effort},4),"⚠ overruns horizon","ok"))))))))'))
 
@@ -142,39 +149,62 @@ def build_subtasks(ws) -> None:
             ws.cell(row=r, column=L.S_ASSIGNEE, value=sub["assignee"])
         ws.cell(row=r, column=L.S_STATUS, value=sub["status"])
         ws.cell(row=r, column=L.S_PCT_DONE, value=sub["pct_done"])
+        if sub.get("actual_start_week"):
+            cell = ws.cell(row=r, column=L.S_ACT_START, value=sub["actual_start_week"])
+            cell.number_format = '"WW"0'
+        if sub.get("actual_end_week"):
+            cell = ws.cell(row=r, column=L.S_ACT_END, value=sub["actual_end_week"])
+            cell.number_format = '"WW"0'
 
     for r in range(L.SUB_FIRST_ROW, N.LAST_SUB_ROW + 1):
-        idx = f"COUNTIF($A${L.SUB_FIRST_ROW}:$A{r},$A{r})"
-        parent_row = f"MATCH($A{r},TaskIDs,0)"
+        c_parent = L.col(L.S_PARENT)
+        c_cplx = L.col(L.S_COMPLEXITY)
+        c_asg = L.col(L.S_ASSIGNEE)
+        c_status = L.col(L.S_STATUS)
+        c_pct = L.col(L.S_PCT_DONE)
+        c_eff_asg = L.col(L.S_EFF_ASSIGNEE)
+        c_effort = L.col(L.S_EFFORT)
+        c_remaining = L.col(L.S_REMAINING)
+        c_act_start = L.col(L.S_ACT_START)
+        c_key = L.col(L.S_KEY)
+        idx = f"COUNTIF(${c_parent}${L.SUB_FIRST_ROW}:${c_parent}{r},${c_parent}{r})"
+        parent_row = f"MATCH(${c_parent}{r},TaskIDs,0)"
         ws.cell(row=r, column=L.S_ID,
-                value=f'=IF($A{r}="","",$A{r}&"."&TEXT({idx},"00"))')
+                value=f'=IF(${c_parent}{r}="","",${c_parent}{r}&"."&TEXT({idx},"00"))')
         # `&""` matters: INDEX on an empty default-assignee cell returns 0, which
         # would display as a literal 0 rather than reading as "nobody set yet".
         ws.cell(row=r, column=L.S_EFF_ASSIGNEE, value=(
-            f'=IF($A{r}="","",IF($E{r}<>"",$E{r},'
+            f'=IF(${c_parent}{r}="","",IF(${c_asg}{r}<>"",${c_asg}{r},'
             f'IFERROR(INDEX(TaskDefAsg,{parent_row})&"","")))'))
         ws.cell(row=r, column=L.S_EFFORT, value=(
-            f'=IF(OR($A{r}="",$D{r}="",$H{r}=""),"",'
-            f'IFERROR(INDEX(CplxDays,MATCH($D{r},CplxNames,0))'
-            f'/INDEX(AsgProf,MATCH($H{r},AsgNames,0)),""))')).number_format = "0.00"
+            f'=IF(OR(${c_parent}{r}="",${c_cplx}{r}="",${c_eff_asg}{r}=""),"",'
+            f'IFERROR(INDEX(CplxDays,MATCH(${c_cplx}{r},CplxNames,0))'
+            f'/INDEX(AsgProf,MATCH(${c_eff_asg}{r},AsgNames,0)),""))')).number_format = "0.00"
         # Done claims no capacity regardless of what % done says; otherwise the
         # balance is what remains of effort after the recorded progress.
         ws.cell(row=r, column=L.S_REMAINING, value=(
-            f'=IF($I{r}="","",IF(IFERROR(MATCH($F{r},StatusNames,0),0)={L.STATUS_DONE},0,'
-            f'$I{r}*(1-N($G{r})/100)))')).number_format = "0.00"
+            f'=IF(${c_effort}{r}="","",IF(IFERROR(MATCH(${c_status}{r},StatusNames,0),0)={L.STATUS_DONE},0,'
+            f'${c_effort}{r}*(1-N(${c_pct}{r})/100)))')).number_format = "0.00"
+        ws.cell(row=r, column=L.S_CONSUMED, value=(
+            f'=IF(${c_effort}{r}="","",'
+            f'ROUND(${c_effort}{r}-${c_remaining}{r},4))')).number_format = "0.00"
         ws.cell(row=r, column=L.S_KEY, value=(
-            f'=IF($I{r}="","",IFERROR('
+            f'=IF(${c_effort}{r}="","",IFERROR('
             f'INDEX(PrioRank,MATCH(INDEX(TaskPrio,{parent_row}),PrioNames,0))*1000000000'
             f'+INDEX(TaskStartWW,{parent_row})*1000000'
             f'+{parent_row}*1000+{idx},""))')).number_format = "0"
         ws.cell(row=r, column=L.S_RANK,
-                value=f'=IF($K{r}="","",RANK($K{r},SubKey,1))')
+                value=f'=IF(${c_key}{r}="","",RANK(${c_key}{r},SubKey,1))')
         ws.cell(row=r, column=L.S_CHECK, value=(
-            f'=IF($A{r}="","",'
+            f'=IF(${c_parent}{r}="","",'
             f'IF(ISNA({parent_row}),"⚠ unknown parent",'
-            f'IF($D{r}="","⚠ no complexity",'
-            f'IF($H{r}="","⚠ no assignee",'
-            f'IF($K{r}="","⚠ check proficiency","ok")))))'))
+            f'IF(${c_cplx}{r}="","⚠ no complexity",'
+            f'IF(${c_eff_asg}{r}="","⚠ no assignee",'
+            f'IF(${c_key}{r}="","⚠ check proficiency",'
+            f'IF(AND(IFERROR(MATCH(${c_status}{r},StatusNames,0),0)>{L.STATUS_TODO},'
+            f'${c_act_start}{r}=""),"⚠ no actual start",'
+            f'IF(IFERROR(MATCH(${c_status}{r},StatusNames,0),0)={L.STATUS_DONE},'
+            f'"done","ok")))))))'))
 
         for c in L.SUB_DERIVED_COLS:
             S.mark_derived(ws.cell(row=r, column=c))

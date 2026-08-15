@@ -195,8 +195,12 @@ def _sub_tasks(wb, version: int) -> list[dict]:
     # derived Effective assignee and Effort columns, so reading them would
     # report an assignee as a status and a day count as a percentage.
     has_progress = version >= 2
-    input_cols = list(L.SUB_INPUT_COLS) if has_progress else \
-        [L.S_PARENT, L.S_NAME, L.S_COMPLEXITY, L.S_ASSIGNEE]
+    has_actuals = version >= 3
+    input_cols = [L.S_PARENT, L.S_NAME, L.S_COMPLEXITY, L.S_ASSIGNEE]
+    if has_progress:
+        input_cols += [L.S_STATUS, L.S_PCT_DONE]
+    if has_actuals:
+        input_cols += [L.S_ACT_START, L.S_ACT_END]
 
     seen: dict[str, int] = {}
     out = []
@@ -218,11 +222,18 @@ def _sub_tasks(wb, version: int) -> list[dict]:
             # sees one shape whatever version it was read from.
             "status": DEFAULT_STATUS,
             "pct_done": 0,
+            "actual_start_week": None,
+            "actual_end_week": None,
         }
         if has_progress:
             record["status"] = (_clean(ws.cell(row=row, column=L.S_STATUS).value)
                                 or DEFAULT_STATUS)
             record["pct_done"] = _clean(ws.cell(row=row, column=L.S_PCT_DONE).value) or 0
+        if has_actuals:
+            record["actual_start_week"] = _clean(
+                ws.cell(row=row, column=L.S_ACT_START).value)
+            record["actual_end_week"] = _clean(
+                ws.cell(row=row, column=L.S_ACT_END).value)
         out.append(record)
     return out
 
@@ -297,11 +308,13 @@ SUB_FIELD_COL = {
     "parent": L.S_PARENT, "name": L.S_NAME,
     "complexity": L.S_COMPLEXITY, "assignee": L.S_ASSIGNEE,
     "status": L.S_STATUS, "pct_done": L.S_PCT_DONE,
+    "actual_start_week": L.S_ACT_START, "actual_end_week": L.S_ACT_END,
 }
 
 # Descriptive facts come from the source system; the rest are the planner's.
 TASK_JSON_OWNED = {"name", "category"}
-SUB_JSON_OWNED = {"name", "status", "pct_done"}
+SUB_JSON_OWNED = {"name", "status", "pct_done",
+                  "actual_start_week", "actual_end_week"}
 
 # A field missing from an older schema version's record takes this rather than
 # being left to whatever a fresh template row happens to hold.

@@ -181,9 +181,17 @@ def test_done_work_claims_no_capacity(values, solved):
 def test_no_week_exceeds_assignee_capacity(values, solved):
     """Against the holiday-reduced figure, not the raw one, which would pass
     trivially in any week a holiday shortens."""
-    load = reference.assignee_load(solved)
     weeks = list(_week_cols())
-    for name, per_week in load.items():
+    planned: dict[str, dict[int, float]] = {}
+    for sub in solved:
+        bucket = planned.setdefault(sub.assignee, {w: 0.0 for w in weeks})
+        for week, days in sub.weekly.items():
+            bucket[week] += days
+
+    # Planned load only. Actuals are what really happened and are not bound by
+    # the capacity figure — a week that overran shows more than it had, which is
+    # information rather than a violation.
+    for name, per_week in planned.items():
         for week in weeks:
             cap = reference.week_capacity(name, week, weeks)
             assert per_week[week] <= cap + TOL, f"{name} {week}"
@@ -331,7 +339,10 @@ def test_deep_dive_sums_to_high_level(values, solved):
             from gantt import calendar_utils as C
             days = [d.isoformat() for d in C.workdays(demo.YEAR, week)]
             daily = sum(s.daily.get(d, 0.0) for d in days)
-            assert abs(daily - s.weekly[week]) < TOL, f"{s.parent}.{s.index} {week}"
+            # Plan plus history: behind the current week a day carries what was
+            # actually spent, ahead of it what is scheduled.
+            expected = s.weekly[week] + s.actual_weekly.get(week, 0.0)
+            assert abs(daily - expected) < TOL, f"{s.parent}.{s.index} {week}"
 
 
 def test_weeks_past_the_horizon_are_switched_off(values):
@@ -668,7 +679,10 @@ def test_a_past_start_week_plans_from_now_instead_of_failing(values):
     behind = []
     for row in range(L.TASK_FIRST_ROW, L.TASK_FIRST_ROW + len(demo.TASKS)):
         earliest = ws.cell(row=row, column=L.T_START_WW).value
-        if earliest is not None and earliest < demo.CURRENT_WEEK:
+        # Only work that has not started: a task already under way legitimately
+        # shows a start in the past, because that is when it really began.
+        if (earliest is not None and earliest < demo.CURRENT_WEEK
+                and ws.cell(row=row, column=L.T_STATUS).value == "TODO"):
             behind.append((ws.cell(row=row, column=L.T_ID).value,
                            ws.cell(row=row, column=L.T_CHECK).value,
                            ws.cell(row=row, column=L.T_CALC_START).value))
@@ -691,3 +705,78 @@ def test_finished_work_is_reported_as_finished(values):
             if ws.cell(row=r, column=L.T_STATUS).value == "Done"]
     assert done, "demo data needs a fully finished task"
     assert all(d == "done" for d in done), done
+
+
+def test_history_is_drawn_where_the_work_happened(values, solved):
+    """Finished work must appear in the weeks it was actually done in.
+
+    Appendix A asked for this directly. It is also why the horizon had to stop
+    moving: a fixed horizon with a current-week pointer leaves somewhere for the
+    past to be drawn.
+    """
+    ws = values[L.CALC_WEEK]
+    cols = _week_cols()
+    by_id = {f"{s.parent}.{s.index:02d}": s for s in solved}
+
+    checked = 0
+    for i in range(len(solved)):
+        row = L.CW_ACTUAL_FIRST + i
+        sub_id = ws.cell(row=row, column=2).value
+        expected = by_id[sub_id]
+        for week, col in cols.items():
+            got = ws.cell(row=row, column=col).value
+            assert abs(got - expected.actual_weekly.get(week, 0.0)) < TOL, \
+                f"{sub_id} {week}"
+        if sum(expected.actual_weekly.values()) > 0:
+            checked += 1
+
+    assert checked, "demo data needs work with recorded actuals"
+
+
+def test_history_never_reaches_into_the_plan(values, solved):
+    """The two must not share a week, or a rollup would double-count.
+
+    Everything behind the current week is history and everything from it forward
+    is plan, which is what lets a view simply add them.
+    """
+    weeks = list(_week_cols())
+    current = demo.CURRENT_WEEK
+    for sub in solved:
+        for week, days in sub.actual_weekly.items():
+            if days > 0:
+                assert week < current, f"{sub.parent} logged history in {week}"
+        for week, days in sub.weekly.items():
+            if days > 0:
+                assert week >= current, f"{sub.parent} planned into the past at {week}"
+    assert any(sum(s.actual_weekly.values()) > 0 for s in solved)
+    assert any(sum(s.weekly.values()) > 0 for s in solved)
+
+
+def test_actuals_are_not_capped_by_capacity(values, solved):
+    """History records what happened, not what was permitted.
+
+    The scheduler cannot exceed capacity by construction; a week that really
+    overran should still say so rather than being quietly clipped to fit.
+    """
+    weeks = list(_week_cols())
+    load = reference.assignee_load(solved)
+    overran = [(name, week) for name, per_week in load.items() for week in weeks
+               if per_week[week] > reference.week_capacity(name, week, weeks) + TOL]
+    for name, week in overran:
+        assert week < demo.CURRENT_WEEK, \
+            f"{name} exceeds capacity in {week}, which is planned rather than past"
+
+
+def test_scheduling_never_sees_the_history_grid(formulas):
+    """Actuals are display-only, by construction rather than by intention.
+
+    If the spill-over algorithm read history it would gain a second code path,
+    and the property that keeps Gantt-High and Gantt-Deep in agreement — one
+    engine, one ordering — would go with it.
+    """
+    ws = formulas[L.CALC_WEEK]
+    for row in range(L.CW_FIRST_ROW, L.CW_FIRST_ROW + 40):
+        for col in range(L.CW_FIRST_WEEK_COL, L.CW_FIRST_WEEK_COL + L.WEEK_COLS):
+            formula = ws.cell(row=row, column=col).value
+            assert "ActGrid" not in str(formula), \
+                f"the planning grid reads history at row {row}"
