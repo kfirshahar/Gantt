@@ -144,7 +144,8 @@ changed since the last one. Ownership only governs *updates* — a row that does
 not exist yet is written in full.
 
 **`replace`** treats the JSON as the whole truth, which is what a first ingest
-needs. `rebuild` generates a fresh workbook and replaces into it, and is the
+needs. It writes rows from the top and clears whatever the JSON does not
+mention, so no demo data is left mixed in. `rebuild` generates a fresh workbook and replaces into it, and is the
 version-upgrade path: export from the old template, rebuild with the new, and
 fields the old export never knew about take the generator's defaults.
 
@@ -157,6 +158,10 @@ Two details worth knowing:
 - **A new assignee or equipment type is added even in merge mode.** Referential
   integrity beats ownership: a task naming an assignee the workbook has never
   heard of fails its dropdown and schedules nothing.
+- **`rebuild` sizes the workbook to the data**, with headroom, so a plan larger
+  than the shipped 30 tasks / 600 sub-tasks needs no source edit. The dimensions
+  are recorded inside the file, so a later export reads it at its real size
+  rather than assuming the defaults and truncating it.
 
 ## Layout
 

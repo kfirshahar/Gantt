@@ -198,9 +198,25 @@ def _sub_tasks(wb) -> list[dict]:
     return out
 
 
+def adopt_sizes(wb) -> dict:
+    """Match the layout to the workbook in hand before reading or writing it.
+
+    A workbook resized to fit real data has more rows than the defaults, and a
+    process that has not been told would stop scanning at row 31 and silently
+    drop everything after it. Files predating this record the sizes nowhere,
+    which is harmless: they were built with the defaults.
+    """
+    sizes = N.read_sizes(wb)
+    if sizes:
+        L.configure(**sizes)
+        N.refresh()
+    return sizes
+
+
 def export(path: str | Path) -> dict:
     """Every input tab of a workbook, as a plain dictionary."""
     wb = load_workbook(Path(path), data_only=False)
+    adopt_sizes(wb)
     assignees = _assignees(wb)
 
     return {
@@ -286,6 +302,24 @@ def _plan_rows(changes, ws, rows, field_col, first_row, last_row,
             and _row_is_empty(ws, r, list(field_col.values()))]
 
     used = set()
+
+    if mode == "replace":
+        # Positions are not inherited. Matching on identity would leave the
+        # incumbent rows where they are and append the new ones after them, so
+        # a rebuild over the shipped demo data would start at row 7 and leave a
+        # cleared gap above it. Replace means the JSON's order is the order.
+        for offset, record in enumerate(rows):
+            row = first_row + offset
+            if row > last_row:
+                raise ValueError(
+                    f"{ws.title} is full: {len(rows)} rows supplied but only "
+                    f"{last_row - first_row + 1} available.")
+            used.add(row)
+            for field, column in field_col.items():
+                if field in record:
+                    _set(changes, ws, row, column, field, record[field], "replace")
+        return used
+
     for record in rows:
         key = key_of(record)
         row = existing_keys.get(key)
@@ -504,6 +538,7 @@ def import_data(workbook: str | Path, data: dict, mode: str = "merge",
     """Apply JSON to a workbook. Returns the changes, applied unless dry_run."""
     source = Path(workbook)
     wb = load_workbook(source, data_only=False)
+    adopt_sizes(wb)
     changes = plan(wb, data, mode)
     if not dry_run:
         apply(wb, changes)
@@ -511,17 +546,43 @@ def import_data(workbook: str | Path, data: dict, mode: str = "merge",
     return changes
 
 
-def rebuild(data: dict, output: str | Path):
+def sizes_for(data: dict) -> dict:
+    """Workbook dimensions large enough for this dataset, with room to grow.
+
+    The template ships sized for the demo set, and real data is routinely
+    bigger. Rebuilding into a workbook that cannot hold it fails with "Tasks is
+    full", which is a diagnosis rather than an answer — the tool knows how much
+    data it was handed, so it can simply build one that fits.
+
+    Headroom is deliberate: a plan that exactly fits has no space for the next
+    task somebody adds by hand.
+    """
+    def room(count: int, floor: int, step: int) -> int:
+        needed = -(-int(count * 1.3) // step) * step        # +30%, rounded up
+        return max(floor, needed)
+
+    return {
+        "MAX_TASKS": room(len(data.get("tasks", [])), 30, 10),
+        "MAX_SUBTASKS": room(len(data.get("sub_tasks", [])), 600, 100),
+        "MAX_ASSIGNEES": room(len(data.get("assignees", [])), 10, 5),
+        "MAX_EQUIPMENT": room(len(data.get("equipment", [])), 10, 5),
+        "MAX_HOLIDAYS": room(len(data.get("holidays", [])), 50, 10),
+    }
+
+
+def rebuild(data: dict, output: str | Path, sizes: dict | None = None):
     """A fresh workbook from JSON, using the current generator.
 
     This is the version-upgrade path: export from the old template, rebuild with
     the new one. Fields the old export never knew about simply take whatever
     default the generator gives them, so compatibility needs no special casing.
+
+    The workbook is sized to the data unless `sizes` says otherwise.
     """
     from .build import build
 
     target = Path(output)
-    build(target)
+    build(target, sizes or sizes_for(data))
     return import_data(target, data, mode="replace")
 
 

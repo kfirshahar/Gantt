@@ -30,7 +30,17 @@ BUILDERS = {
 }
 
 
-def build(path: str | Path) -> Path:
+def build(path: str | Path, sizes: dict | None = None) -> Path:
+    """Generate the workbook. `sizes` resizes it to fit a given dataset.
+
+    Sizing has to happen before anything is written: block positions and the
+    defined names are derived from the row counts, so changing them afterwards
+    would leave formulas pointing at the wrong ranges.
+    """
+    if sizes:
+        L.configure(**sizes)
+        N.refresh()
+
     wb = Workbook()
     wb.remove(wb.active)
     for name in SHEET_ORDER:

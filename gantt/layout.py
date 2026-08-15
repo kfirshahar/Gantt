@@ -39,8 +39,6 @@ MAX_HOLIDAYS = 50
 WEEK_COLS = 26
 MAX_DEEP_WEEKS = 8          # soft cap on the deep-dive window
 WORKDAYS_PER_WEEK = 5       # Sunday..Thursday
-DEEP_DAY_COLS = MAX_DEEP_WEEKS * WORKDAYS_PER_WEEK
-
 DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu"]
 
 # --- Config sheet ----------------------------------------------------------
@@ -59,11 +57,6 @@ CFG_PRIORITY_COUNT = 3
 
 GRID_FIRST_WEEK_COL = 2      # column B
 GRID_FIRST_DATA_ROW = 2
-# Classic conditional formatting cannot reference another worksheet; Excel
-# promotes any rule that does into an x14 extension, which openpyxl drops on
-# save. Each sheet therefore mirrors the flag it needs into a hidden row of
-# its own and the rules stay local. Cell formulas have no such restriction.
-GRID_FLAG_ROW = 15
 
 # --- Tasks sheet columns ---------------------------------------------------
 
@@ -155,13 +148,7 @@ CW_START_WW = 5
 CW_PARENT = 6
 CW_FIRST_WEEK_COL = 7        # column G
 
-# Rollup blocks, all aligned to the same week columns.
-CW_TASKWEEK_HDR = CW_FIRST_ROW + MAX_SUBTASKS + 2
-CW_TASKWEEK_FIRST = CW_TASKWEEK_HDR + 1
-CW_AWWEEK_HDR = CW_TASKWEEK_FIRST + MAX_TASKS + 2      # assignee load per week
-CW_AWWEEK_FIRST = CW_AWWEEK_HDR + 1
-CW_EQPWEEK_HDR = CW_AWWEEK_FIRST + MAX_ASSIGNEES + 2   # equipment demand per week
-CW_EQPWEEK_FIRST = CW_EQPWEEK_HDR + 1
+
 
 # --- CalcDay sheet ---------------------------------------------------------
 
@@ -186,6 +173,55 @@ CD_FIRST_DAY_COL = 7         # column G
 GD_FLAG_ROW = 5              # mirrors CalcDay's in-window flags
 GD_WINDOW_START_CELL = "B3"
 GD_WINDOW_WEEKS_CELL = "B4"
+
+
+SIZES = ("MAX_ASSIGNEES", "MAX_EQUIPMENT", "MAX_TASKS", "MAX_SUBTASKS",
+         "MAX_HOLIDAYS", "WEEK_COLS", "MAX_DEEP_WEEKS")
+
+
+def derive() -> None:
+    """Recompute everything that depends on a size.
+
+    Several positions are a function of how many rows precede them — the rollup
+    blocks on CalcWeek, the hidden flag rows, the deep-dive column count. They
+    were constants evaluated at import, which silently froze the sizes at their
+    defaults. Anything sized has to be derived here instead, or configuring a
+    larger workbook lays blocks on top of each other.
+    """
+    global DEEP_DAY_COLS, GRID_FLAG_ROW, GH_FLAG_ROW
+    global CW_TASKWEEK_HDR, CW_TASKWEEK_FIRST, CW_AWWEEK_HDR, CW_AWWEEK_FIRST
+    global CW_EQPWEEK_HDR, CW_EQPWEEK_FIRST
+
+    DEEP_DAY_COLS = MAX_DEEP_WEEKS * WORKDAYS_PER_WEEK
+
+    # Classic conditional formatting cannot reference another worksheet; Excel
+    # promotes any rule that does into an x14 extension openpyxl drops on save.
+    # Each sheet mirrors the flag it needs into a hidden row of its own, which
+    # has to sit clear of that sheet's data.
+    GRID_FLAG_ROW = GRID_FIRST_DATA_ROW + max(MAX_ASSIGNEES, MAX_EQUIPMENT) + 4
+    GH_FLAG_ROW = (6 + 2 * MAX_ASSIGNEES + 2 + MAX_TASKS + 2
+                   + 2 * MAX_EQUIPMENT + 16)
+
+    CW_TASKWEEK_HDR = CW_FIRST_ROW + MAX_SUBTASKS + 2
+    CW_TASKWEEK_FIRST = CW_TASKWEEK_HDR + 1
+    CW_AWWEEK_HDR = CW_TASKWEEK_FIRST + MAX_TASKS + 2
+    CW_AWWEEK_FIRST = CW_AWWEEK_HDR + 1
+    CW_EQPWEEK_HDR = CW_AWWEEK_FIRST + MAX_ASSIGNEES + 2
+    CW_EQPWEEK_FIRST = CW_EQPWEEK_HDR + 1
+
+
+def configure(**overrides) -> None:
+    """Resize the workbook. Unknown or non-positive values are refused."""
+    for key, value in overrides.items():
+        if key not in SIZES:
+            raise ValueError(f"unknown size {key!r}; expected one of {SIZES}")
+        if not isinstance(value, int) or value < 1:
+            raise ValueError(f"{key} must be a positive integer, got {value!r}")
+        globals()[key] = value
+    derive()
+
+
+derive()
 
 
 def col(idx: int) -> str:

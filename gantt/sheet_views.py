@@ -9,7 +9,6 @@ from . import demo, layout as L, names as N, styles as S
 # --- Gantt-High ------------------------------------------------------------
 
 GH_WEEK_COL = 3          # weeks start at column C
-GH_FLAG_ROW = 95         # hidden; keeps the greying rules off other sheets
 GH_LOAD_HDR = 4
 GH_LOAD_FIRST = 5
 
@@ -19,7 +18,7 @@ def build_gantt_high(ws) -> None:
             "Read-only. Weeks run across; every figure is in work days.")
 
     last_week_col = GH_WEEK_COL + L.WEEK_COLS - 1
-    S.write_flag_row(ws, GH_WEEK_COL, L.WEEK_COLS, GH_FLAG_ROW,
+    S.write_flag_row(ws, GH_WEEK_COL, L.WEEK_COLS, L.GH_FLAG_ROW,
                      lambda i: f"INDEX(CwActive,{i + 1})")
     load_last = _assignee_load(ws, last_week_col)
     timeline_last = _task_timeline(ws, load_last + 2, last_week_col)
@@ -105,7 +104,7 @@ def _assignee_load(ws, last_col: int) -> int:
             bottom=Side(style="medium", color=S.INK))
 
     last = GH_LOAD_FIRST + 2 * L.MAX_ASSIGNEES - 1
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, GH_LOAD_HDR, last, GH_FLAG_ROW)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, GH_LOAD_HDR, last, L.GH_FLAG_ROW)
     return last
 
 
@@ -147,7 +146,7 @@ def _task_timeline(ws, start_row: int, last_col: int) -> int:
         f"{bar}:{L.col(last_col)}{last}",
         Rule(type="expression", dxf=DifferentialStyle(fill=S.CF_BAR),
              formula=[f"AND(ISNUMBER({bar}),{bar}>0)"]))
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, GH_FLAG_ROW)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, L.GH_FLAG_ROW)
     return last
 
 
@@ -195,7 +194,7 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
         ws.cell(row=dem_row, column=1).border = S.BORDER_ALL
 
     last = first + 2 * L.MAX_EQUIPMENT - 1
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, GH_FLAG_ROW)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, L.GH_FLAG_ROW)
     return last
 
 

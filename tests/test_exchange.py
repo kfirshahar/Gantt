@@ -13,7 +13,7 @@ from openpyxl import load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gantt import demo, exchange, layout as L  # noqa: E402
+from gantt import demo, exchange, layout as L, names as N  # noqa: E402
 from gantt.build import build  # noqa: E402
 
 
@@ -366,3 +366,67 @@ def test_merge_never_removes_anything(generated, tmp_path):
     after = exchange.export(target)
     assert len(after["tasks"]) == 5, "merge deleted tasks the update did not mention"
     assert len(after["sub_tasks"]) == 33
+
+
+def test_rebuild_sizes_itself_to_the_data(tmp_path):
+    """Real data is routinely bigger than the demo set the template ships for.
+
+    Failing with "Tasks is full" is a diagnosis, not an answer: rebuild knows
+    how much data it was handed, so it can build a workbook that holds it.
+    """
+    data = exchange.export(build(tmp_path / "seed.xlsx"))
+    data["tasks"], data["sub_tasks"] = [], []
+    for i in range(L.MAX_TASKS * 3):
+        tid = f"AF{i:02d}"
+        data["tasks"].append({"id": tid, "name": f"Task {i}", "category": "Ops",
+                              "priority": "P2", "complexity": "Medium",
+                              "equipment": "Rig-A", "default_assignee": "Bob",
+                              "earliest_start_week": 33})
+        data["sub_tasks"].append({"parent": tid, "name": "Step",
+                                  "complexity": "Simple", "assignee": None})
+
+    wanted = exchange.sizes_for(data)
+    assert wanted["MAX_TASKS"] > len(data["tasks"]), "no headroom left to add work by hand"
+
+    out = tmp_path / "big.xlsx"
+    exchange.rebuild(data, out)
+    assert len(exchange.export(out)["tasks"]) == len(data["tasks"])
+
+
+def test_a_resized_workbook_reports_its_own_size(tmp_path):
+    """Otherwise a later process assumes the defaults and truncates the file.
+
+    The sizes are recorded as constant defined names inside the workbook, so
+    reading one is self-describing rather than relying on whatever the reading
+    process happens to be configured for.
+    """
+    data = exchange.export(build(tmp_path / "seed.xlsx"))
+    data["tasks"] = [{"id": f"T{i:03d}", "name": f"Task {i}"} for i in range(80)]
+    data["sub_tasks"] = []
+
+    out = tmp_path / "big.xlsx"
+    exchange.rebuild(data, out)
+
+    # Forget everything, as a fresh interpreter would have.
+    L.configure(MAX_TASKS=30, MAX_SUBTASKS=600)
+    N.refresh()
+    assert L.MAX_TASKS == 30
+
+    recovered = exchange.export(out)
+    assert L.MAX_TASKS > 30, "the workbook's own size was not adopted"
+    assert len(recovered["tasks"]) == 80, "rows past the default limit were dropped"
+
+
+def test_replace_packs_from_the_first_row(tmp_path):
+    """The template ships populated; imported rows must not start below it."""
+    data = exchange.export(build(tmp_path / "seed.xlsx"))
+    data["tasks"] = [{"id": "NEW-1", "name": "First"}, {"id": "NEW-2", "name": "Second"}]
+    data["sub_tasks"] = [{"parent": "NEW-1", "name": "Only", "complexity": "Simple",
+                          "assignee": None}]
+
+    out = tmp_path / "packed.xlsx"
+    exchange.rebuild(data, out)
+
+    ws = load_workbook(out)[L.TASKS]
+    assert ws.cell(row=L.TASK_FIRST_ROW, column=L.T_ID).value == "NEW-1"
+    assert ws.cell(row=L.TASK_FIRST_ROW + 1, column=L.T_ID).value == "NEW-2"
