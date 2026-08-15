@@ -6,22 +6,55 @@ recalculate in Excel.
 
 ## Build
 
+macOS / Linux:
+
 ```sh
-python3 -m venv .venv && .venv/bin/pip install openpyxl
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python build_template.py            # -> Gantt_Template.xlsx
 ```
 
+Windows (PowerShell), Python 3.10+:
+
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+$env:PYTHONUTF8 = "1"        # the workbook uses non-ASCII; see below
+.venv\Scripts\python build_template.py
+```
+
+`PYTHONUTF8=1` matters on Windows. The check columns use a warning sign and the
+notes use em dashes, and those characters reach the console through pytest
+failure messages. A console at the default code page raises `UnicodeEncodeError`
+when it tries to print them.
+
 ## Test
 
-Numerical tests recalculate the workbook with LibreOffice headless and compare
-the results against `gantt/reference.py`, an independent Python model of the
-scheduling algorithm. They skip automatically if LibreOffice is absent.
+Structural tests run anywhere. Numerical tests recalculate the workbook and
+compare the results against `gantt/reference.py`, an independent Python model of
+the scheduling algorithm; they skip if no engine is available.
 
 ```sh
-brew install --cask libreoffice     # optional, enables the numerical half
-.venv/bin/pip install pytest
 .venv/bin/python -m pytest tests/ -q
+python -c "from gantt import recalc; print(recalc.describe())"   # which engine
 ```
+
+### Choosing the engine
+
+| Engine | Platform | Notes |
+|---|---|---|
+| Excel over COM | Windows | Preferred. Needs `pywin32`. |
+| LibreOffice | any | `brew install --cask libreoffice`, or install and let it be found |
+
+**Excel is the more trustworthy of the two, and not by a small margin.** Every
+rendering bug this project has shipped was invisible to LibreOffice: a
+conditional fill keyed on `fgColor` rather than `bgColor`, a colour padded to a
+transparent alpha, and `"" > 0` evaluating true so every empty cell shaded. The
+numbers were right in all three cases. On Windows, prefer Excel.
+
+Overrides:
+
+- `GANTT_RECALC` — `excel`, `libreoffice` or `none` to force the choice.
+- `GANTT_SOFFICE` — an explicit path to the `soffice` binary.
 
 ## How it works
 

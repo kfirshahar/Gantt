@@ -1,0 +1,9 @@
+# Runtime
+openpyxl>=3.1
+
+# Tests
+pytest>=7.0
+
+# Optional: lets the tests recalculate through Excel itself on Windows, which
+# is the only way Excel's formatting and comparison semantics get exercised.
+pywin32>=306; sys_platform == "win32"

@@ -5,7 +5,6 @@ so the workbook is recalculated headlessly and the resulting values are compared
 against `gantt.reference`, an independent Python model of the same algorithm.
 """
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -15,11 +14,19 @@ from openpyxl import load_workbook
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from gantt import (calendar_utils as C, demo, layout as L, names as N,  # noqa: E402
-                   reference, styles as S)
+                   recalc, reference, styles as S)
 from gantt.build import build  # noqa: E402
 
-SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+# Which engine recalculates the workbook is a platform decision, not a test one.
+# On Windows this is Excel itself, which is the only way the formatting and
+# comparison semantics the file relies on are actually exercised.
+BACKEND = recalc.get_backend()
 TOL = 1e-6
+
+
+def _needs_recalc() -> None:
+    if BACKEND is None:
+        pytest.skip(recalc.describe())
 
 
 @pytest.fixture(scope="session")
@@ -35,15 +42,10 @@ def formulas(built):
 
 @pytest.fixture(scope="session")
 def values(built, tmp_path_factory):
-    """The workbook after LibreOffice has recalculated every formula."""
-    if not Path(SOFFICE).exists():
-        pytest.skip("LibreOffice not installed; numerical checks skipped")
+    """The workbook after every formula has been recalculated."""
+    _needs_recalc()
     outdir = tmp_path_factory.mktemp("recalc")
-    subprocess.run(
-        [SOFFICE, "--headless", "--norestore", "--convert-to", "xlsx",
-         "--outdir", str(outdir), str(built)],
-        check=True, capture_output=True, timeout=300)
-    return load_workbook(outdir / built.name, data_only=True)
+    return load_workbook(BACKEND.recalculate(built, outdir), data_only=True)
 
 
 @pytest.fixture(scope="session")
@@ -291,14 +293,12 @@ def test_weeks_past_the_horizon_are_switched_off(values):
 
 
 def _recalc(wb, tmp_path_factory, label: str):
+    """Save an edited workbook and read back what the engine computes."""
+    _needs_recalc()
     src = tmp_path_factory.mktemp(label) / f"{label}.xlsx"
     wb.save(src)
     outdir = tmp_path_factory.mktemp(f"{label}_out")
-    subprocess.run(
-        [SOFFICE, "--headless", "--norestore", "--convert-to", "xlsx",
-         "--outdir", str(outdir), str(src)],
-        check=True, capture_output=True, timeout=300)
-    return load_workbook(outdir / src.name, data_only=True)
+    return load_workbook(BACKEND.recalculate(src, outdir), data_only=True)
 
 
 def test_horizon_cell_extends_the_plan(built, tmp_path_factory):
@@ -307,8 +307,7 @@ def test_horizon_cell_extends_the_plan(built, tmp_path_factory):
     This is the whole point of building more week columns than are active: the
     12->16 case has to work by typing in a cell.
     """
-    if not Path(SOFFICE).exists():
-        pytest.skip("LibreOffice not installed")
+    _needs_recalc()
 
     horizon = 16
     wb = load_workbook(built)
@@ -346,8 +345,7 @@ def _unfit(rows) -> float:
 
 def test_task_beyond_horizon_is_flagged_not_silently_dropped(built, tmp_path_factory):
     """A start week past the horizon must say so, not just vanish."""
-    if not Path(SOFFICE).exists():
-        pytest.skip("LibreOffice not installed")
+    _needs_recalc()
 
     wb = load_workbook(built)
     wb[L.TASKS].cell(row=L.TASK_FIRST_ROW + 4, column=L.T_START_WW).value = (
@@ -443,8 +441,7 @@ def test_every_subtask_check_condition_fires(built, tmp_path_factory):
     The dropdowns stop most bad input at the door, so these fire mainly on rows
     part-way through being filled in — which is exactly when they are useful.
     """
-    if not Path(SOFFICE).exists():
-        pytest.skip("LibreOffice not installed")
+    _needs_recalc()
 
     wb = load_workbook(built)
     st, tasks = wb[L.SUBTASKS], wb[L.TASKS]
@@ -480,8 +477,7 @@ def test_every_subtask_check_condition_fires(built, tmp_path_factory):
 
 def test_effective_assignee_is_blank_not_zero(built, tmp_path_factory):
     """An unset default assignee must read as empty, not as a literal 0."""
-    if not Path(SOFFICE).exists():
-        pytest.skip("LibreOffice not installed")
+    _needs_recalc()
 
     wb = load_workbook(built)
     wb[L.TASKS].cell(row=L.TASK_FIRST_ROW, column=L.T_DEF_ASSIGNEE).value = None
@@ -493,8 +489,7 @@ def test_effective_assignee_is_blank_not_zero(built, tmp_path_factory):
 
 def test_week_labels_wrap_at_the_year_boundary(built, tmp_path_factory):
     """WW33 + 26 weeks runs into 2027; column 21 must read WW01 '27, not WW53."""
-    if not Path(SOFFICE).exists():
-        pytest.skip("LibreOffice not installed")
+    _needs_recalc()
 
     wb = load_workbook(built)
     wb[L.CONFIG].cell(row=L.CFG_HORIZON_ROW, column=2).value = L.WEEK_COLS
@@ -520,8 +515,7 @@ def test_week_labels_wrap_at_the_year_boundary(built, tmp_path_factory):
 
 def test_start_week_is_a_real_calendar_week(built, tmp_path_factory):
     """Typing 2 for a plan reaching into 2027 must mean WW02 of 2027."""
-    if not Path(SOFFICE).exists():
-        pytest.skip("LibreOffice not installed")
+    _needs_recalc()
 
     wb = load_workbook(built)
     wb[L.CONFIG].cell(row=L.CFG_HORIZON_ROW, column=2).value = L.WEEK_COLS
@@ -555,22 +549,13 @@ def test_window_opened_mid_project(built, tmp_path_factory):
     This exercises the carry-in seeding: remaining = effort minus everything
     already burned in weeks before the window.
     """
-    if not Path(SOFFICE).exists():
-        pytest.skip("LibreOffice not installed")
+    _needs_recalc()
 
     start, weeks = demo.START_WEEK + 4, 3
-    edited = tmp_path_factory.mktemp("window") / "shifted.xlsx"
     wb = load_workbook(built)
     wb[L.GANTT_DEEP][L.GD_WINDOW_START_CELL] = start
     wb[L.GANTT_DEEP][L.GD_WINDOW_WEEKS_CELL] = weeks
-    wb.save(edited)
-
-    outdir = tmp_path_factory.mktemp("window_recalc")
-    subprocess.run(
-        [SOFFICE, "--headless", "--norestore", "--convert-to", "xlsx",
-         "--outdir", str(outdir), str(edited)],
-        check=True, capture_output=True, timeout=300)
-    got = load_workbook(outdir / edited.name, data_only=True)
+    got = _recalc(wb, tmp_path_factory, "window")
 
     expected = reference.solve(window_start=start, window_weeks=weeks)
     by_rank = {s.rank: s for s in expected}

@@ -1,0 +1,15 @@
+[project]
+name = "gantt-template"
+version = "0.1.0"
+description = "Generator for a self-contained Excel Gantt planning template"
+requires-python = ">=3.10"
+dependencies = ["openpyxl>=3.1"]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+# Drives Excel over COM so the numeric tests run against the engine the
+# workbook is actually opened in.
+excel = ["pywin32>=306; sys_platform == 'win32'"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
