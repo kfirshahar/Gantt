@@ -164,8 +164,14 @@ def test_done_work_claims_no_capacity(values, solved):
             assert total < TOL, f"{sub_id} is Done but still claims capacity"
             checked_done += 1
         elif sub.status == "In Progress":
-            assert abs(total - sub.remaining) < TOL, sub_id
-            assert total < sub.effort - TOL, f"{sub_id} ignored its % done"
+            # Not "equals remaining": whether it all fits depends on what
+            # higher-ranked work leaves behind, and since planning starts at the
+            # current week a P1 task can legitimately starve it. What must hold
+            # is that it never claims more than is left, and that % done really
+            # did reduce what is left.
+            assert total <= sub.remaining + TOL, \
+                f"{sub_id} claimed more than its remaining effort"
+            assert sub.remaining < sub.effort - TOL, f"{sub_id} ignored its % done"
             checked_partial += 1
 
     assert checked_done, "demo data must contain a Done sub-task"
@@ -403,7 +409,7 @@ def test_task_beyond_horizon_is_flagged_not_silently_dropped(built, tmp_path_fac
     got = _recalc(wb, tmp_path_factory, "beyond")
 
     check = got[L.TASKS].cell(row=L.TASK_FIRST_ROW + 4, column=L.T_CHECK).value
-    assert "outside horizon" in check, check
+    assert "beyond the horizon" in check, check
 
 
 def test_conditional_format_styles_render_in_excel(built):
@@ -647,3 +653,41 @@ def test_holidays_remove_day_capacity(values):
             flagged.add(d.date().isoformat())
     # every flagged day is a real holiday
     assert flagged <= holidays
+
+
+def test_a_past_start_week_plans_from_now_instead_of_failing(values):
+    """The complaint this phase exists to answer.
+
+    The horizon used to be moved forward as the project ran, which left every
+    task that had already started sitting before its start and reported as
+    "outside horizon". The horizon now stays put and a current-week pointer
+    moves instead, so an earliest start that has gone by simply means "as soon
+    as possible".
+    """
+    ws = values[L.TASKS]
+    behind = []
+    for row in range(L.TASK_FIRST_ROW, L.TASK_FIRST_ROW + len(demo.TASKS)):
+        earliest = ws.cell(row=row, column=L.T_START_WW).value
+        if earliest is not None and earliest < demo.CURRENT_WEEK:
+            behind.append((ws.cell(row=row, column=L.T_ID).value,
+                           ws.cell(row=row, column=L.T_CHECK).value,
+                           ws.cell(row=row, column=L.T_CALC_START).value))
+
+    assert behind, "demo data needs a task whose earliest start has passed"
+    for task_id, check, start in behind:
+        assert "horizon" not in (check or ""), f"{task_id} flagged for being late: {check}"
+        if start:
+            week = int(str(start).replace("WW", "").split()[0])
+            assert week >= demo.CURRENT_WEEK, \
+                f"{task_id} was scheduled into the past, at {start}"
+
+
+def test_finished_work_is_reported_as_finished(values):
+    """A Done task has no remaining effort, so every downstream check would
+    otherwise flag it — "not scheduled" for work that is simply complete."""
+    ws = values[L.TASKS]
+    done = [ws.cell(row=r, column=L.T_CHECK).value
+            for r in range(L.TASK_FIRST_ROW, L.TASK_FIRST_ROW + len(demo.TASKS))
+            if ws.cell(row=r, column=L.T_STATUS).value == "Done"]
+    assert done, "demo data needs a fully finished task"
+    assert all(d == "done" for d in done), done

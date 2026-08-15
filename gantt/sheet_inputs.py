@@ -5,7 +5,7 @@ from datetime import datetime
 from openpyxl.styles import Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from . import demo, layout as L, names as N, styles as S
+from . import calendar_utils as C, demo, layout as L, names as N, styles as S
 
 
 def _week_headers(ws, row: int, first_col: int, count: int, output: bool = False) -> None:
@@ -28,6 +28,7 @@ def build_config(ws) -> None:
         (L.CFG_YEAR_ROW, "Project year", demo.YEAR, "0"),
         (L.CFG_START_WEEK_ROW, "Start week (WW)", demo.START_WEEK, "0"),
         (L.CFG_HORIZON_ROW, "Horizon (weeks)", demo.HORIZON, "0"),
+        (L.CFG_CURRENT_WEEK_ROW, "Current week (WW)", demo.CURRENT_WEEK, '"WW"0'),
     ]
     for row, label, value, fmt in rows:
         ws.cell(row=row, column=1, value=label).font = S.FONT_SECTION
@@ -47,6 +48,18 @@ def build_config(ws) -> None:
                 f"To go further, raise WEEK_COLS in gantt/layout.py and rebuild.")
     ws.add_data_validation(dv)
     dv.add(horizon)
+
+    current = ws.cell(row=L.CFG_CURRENT_WEEK_ROW, column=2)
+    current.fill = S.FILL_WARN
+    ws.cell(row=L.CFG_CURRENT_WEEK_ROW, column=3, value=(
+        "Move this on as the project progresses. Weeks before it are history; "
+        "planning starts here, so a task whose earliest start has passed is "
+        "simply scheduled as soon as possible.")).font = S.FONT_NOTE
+    today = ws.cell(row=L.CFG_CURRENT_WEEK_ROW + 1, column=3, value=(
+        f'="today falls in "&TEXT('
+        f'{C.excel_calendar_week_formula("TODAY()-WEEKDAY(TODAY(),1)+1", "CfgYear")},"00")'
+        f'&" of "&CfgYear'))
+    today.font = S.FONT_NOTE
 
     note = ws.cell(row=L.CFG_HORIZON_ROW, column=3, value=(
         f"Live — change it and every grid follows. Max {L.WEEK_COLS} "

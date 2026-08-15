@@ -8,6 +8,9 @@ types, and a 12-week horizon starting WW33 2026.
 YEAR = 2026
 START_WEEK = 33
 HORIZON = 12
+# Two weeks in, so the demo shows a project under way rather than one
+# about to begin.
+CURRENT_WEEK = 35
 
 COMPLEXITY = [("Simple", 1.0), ("Medium", 2.5), ("Complex", 5.0)]
 # Order carries the meaning: not started, in progress, finished.

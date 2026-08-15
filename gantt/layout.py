@@ -50,6 +50,10 @@ DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu"]
 CFG_YEAR_ROW = 3
 CFG_START_WEEK_ROW = 4
 CFG_HORIZON_ROW = 5
+# Where "now" is. The horizon stays anchored at the project start; this moves
+# instead. Weeks behind it are history, weeks from it forward are the plan, and
+# nothing falls outside the horizon merely because time has passed.
+CFG_CURRENT_WEEK_ROW = 6
 CFG_COMPLEXITY_HDR = 8
 CFG_COMPLEXITY_FIRST = 9
 CFG_COMPLEXITY_COUNT = 3

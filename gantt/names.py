@@ -38,6 +38,7 @@ def refresh() -> None:
         "CfgYear": L.abs_cell(L.CONFIG, 2, L.CFG_YEAR_ROW),
         "CfgStartWeek": L.abs_cell(L.CONFIG, 2, L.CFG_START_WEEK_ROW),
         "CfgHorizon": L.abs_cell(L.CONFIG, 2, L.CFG_HORIZON_ROW),
+    "CfgCurrentWeek": L.abs_cell(L.CONFIG, 2, L.CFG_CURRENT_WEEK_ROW),
         "CplxNames": L.abs_range(L.CONFIG, 1, L.CFG_COMPLEXITY_FIRST,
                                  1, L.CFG_COMPLEXITY_FIRST + L.CFG_COMPLEXITY_COUNT - 1),
         "CplxDays": L.abs_range(L.CONFIG, 2, L.CFG_COMPLEXITY_FIRST,

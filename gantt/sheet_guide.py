@@ -45,6 +45,16 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "their daily rate is just their weekly figure divided by five, and a holiday "
         "removes the day rather than squeezing the same work into the days that remain.",
     ]),
+    ("Where 'now' is, and why the horizon does not move", [
+        "Config has a Current week. Weeks before it are history; planning starts "
+        "there. Move it on as the project progresses — the horizon itself stays "
+        "anchored at the project start.",
+        "So an Earliest start WW that has already gone by is not an error. It "
+        "simply means the work should start as soon as possible, and it is "
+        "scheduled from the current week instead.",
+        "'Starts beyond the horizon' now means only what it says: a start week "
+        "later than the last week the plan covers.",
+    ]),
     ("How the scheduling works", [
         "You never type a duration. Each sub-task's effort is the base days for its "
         "complexity divided by its assignee's proficiency. A task's effort is the sum "
@@ -88,6 +98,9 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "row 31 on Tasks. Do not copy formulas down — just type in the white cells.",
     ]),
     ("What the Check messages mean", [
+        "done (Tasks) — every sub-task is finished. Not a warning; it is there so "
+        "completed work stops being reported as a problem.",
+        "in progress (Tasks) — under way, with nothing left to schedule.",
         "no complexity — pick one from the dropdown. This is the usual one on a row you "
         "have just added.",
         "no assignee — neither this sub-task nor its parent task names anybody. Set the "
@@ -97,8 +110,10 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "check proficiency — that assignee's proficiency is blank or zero, so effort "
         "cannot be divided by it.",
         "no sub-tasks (Tasks) — the task has no work underneath it, so its effort is zero.",
-        "start outside horizon (Tasks) — the Earliest start WW is not one of the weeks "
-        "currently shown. Widen Horizon on Config, or choose another week.",
+        "start week not in the grid (Tasks) — the Earliest start WW names no week the "
+        "plan covers at all. Check the number.",
+        "starts beyond the horizon (Tasks) — the start is later than the last week "
+        "shown. Widen Horizon on Config, or bring the task forward.",
         "not scheduled (Tasks) — it has effort but nothing landed anywhere. Usually the "
         "assignee has no capacity at all.",
         "overruns horizon (Tasks) — the work does not finish inside the horizon. Widen "

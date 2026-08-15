@@ -25,12 +25,24 @@ def _row_identity(ws, r: int, rank_col: int, first_row: int) -> None:
             value=f'=IF($B{r}="","",{_pull(rank, "SubAsgEff")})')
     ws.cell(row=r, column=rank_col + 5,
             value=f'=IF($B{r}="","",{_pull(rank, "SubParent")})')
-    # Column E is the start *position*, resolved from the calendar week the user
-    # typed. An unknown week yields 9999 so the sub-task never schedules and the
-    # Tasks check reports it, rather than it quietly landing in week one.
+    # Column E is the position work may first be planned into: the later of the
+    # task's earliest start and the current week. Nothing is ever scheduled into
+    # the past, and an earliest start that has already gone by simply means "as
+    # soon as possible" rather than an error — which is why the horizon no
+    # longer has to move as the project runs.
+    #
+    # An unknown week still yields 9999, so a start naming no column in the grid
+    # never schedules and the Tasks check reports it.
     ws.cell(row=r, column=rank_col + 4, value=(
-        f'=IF($B{r}="",9999,IFERROR(MATCH('
-        f'INDEX(TaskStartWW,MATCH($F{r},TaskIDs,0)),CwWeeks,0),9999))'))
+        f'=IF($B{r}="",9999,IFERROR(MAX(current_pos,MATCH('
+        f'INDEX(TaskStartWW,MATCH($F{r},TaskIDs,0)),CwWeeks,0)),9999))'
+        .replace("current_pos", _current_pos())))
+
+
+def _current_pos() -> str:
+    """Grid position of the current week, or the first column if it is behind
+    the project start — planning cannot begin before the plan does."""
+    return "IFERROR(MATCH(CfgCurrentWeek,CwWeeks,0),1)"
 
 
 def _effort_expr(r: int) -> str:

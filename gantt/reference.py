@@ -69,7 +69,20 @@ def build_subtasks() -> list[SubTask]:
     return rows
 
 
-def schedule_weekly(rows: list[SubTask], horizon: int | None = None) -> list[SubTask]:
+def planning_start(parent: str, current_week: int | None = None) -> int:
+    """The first week work may be planned into.
+
+    The later of the task's earliest start and the current week: nothing is
+    scheduled into the past, and an earliest start that has already gone by
+    means "as soon as possible" rather than being an error.
+    """
+    _, _, _, tasks, _ = _lookups()
+    current = demo.CURRENT_WEEK if current_week is None else current_week
+    return max(tasks[parent][7], current)
+
+
+def schedule_weekly(rows: list[SubTask], horizon: int | None = None,
+                    current_week: int | None = None) -> list[SubTask]:
     """Spill-over across weeks, in rank order, against assignee capacity."""
     _, _, _, tasks, _ = _lookups()
     weeks = _weeks(horizon)
@@ -77,7 +90,7 @@ def schedule_weekly(rows: list[SubTask], horizon: int | None = None) -> list[Sub
 
     for row in sorted(rows, key=lambda s: s.rank):
         remaining = row.remaining
-        start = tasks[row.parent][7]
+        start = planning_start(row.parent, current_week)
         for w in weeks:
             if w < start or remaining <= 1e-9:
                 row.weekly[w] = 0.0
@@ -113,7 +126,8 @@ def week_capacity(name: str, week: int, weeks: list[int]) -> float:
 
 
 def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int,
-                   horizon: int | None = None) -> list[SubTask]:
+                   horizon: int | None = None,
+                   current_week: int | None = None) -> list[SubTask]:
     """Same algorithm at day granularity across the visible window."""
     _, _, _, tasks, _ = _lookups()
     weeks = _weeks(horizon)
@@ -134,7 +148,7 @@ def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int,
     for row in sorted(rows, key=lambda s: s.rank):
         burned = sum(v for w, v in row.weekly.items() if w < window_start)
         remaining = max(0.0, row.remaining - burned)
-        start = tasks[row.parent][7]
+        start = planning_start(row.parent, current_week)
         for w in window:
             for d in C.workdays(demo.YEAR, w):
                 iso = d.isoformat()
@@ -151,9 +165,10 @@ def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int,
 
 
 def solve(window_start: int | None = None, window_weeks: int = 4,
-          horizon: int | None = None) -> list[SubTask]:
-    rows = schedule_weekly(build_subtasks(), horizon)
-    return schedule_daily(rows, window_start or demo.START_WEEK, window_weeks, horizon)
+          horizon: int | None = None, current_week: int | None = None) -> list[SubTask]:
+    rows = schedule_weekly(build_subtasks(), horizon, current_week)
+    return schedule_daily(rows, window_start or demo.START_WEEK, window_weeks,
+                          horizon, current_week)
 
 
 def assignee_load(rows: list[SubTask], horizon: int | None = None) -> dict[str, dict[int, float]]:

@@ -93,9 +93,16 @@ def build_tasks(ws) -> None:
         ws.cell(row=r, column=L.T_CHECK, value=(
             f'=IF($A{r}="","",'
             f'IF(COUNTIF(SubParent,$A{r})=0,"⚠ no sub-tasks",'
-            f'IF(OR({pos}=0,{pos}>CfgHorizon),"⚠ start outside horizon",'
+            # Finished work is checked first and reported as finished. It has no
+            # remaining effort, so every test below would flag it — "not
+            # scheduled" for a task that is simply done, which is the complaint
+            # this phase exists to answer.
+            f'IF($L{r}=INDEX(StatusNames,{L.STATUS_DONE}),"done",'
+            f'IF({pos}=0,"⚠ start week not in the grid",'
+            f'IF({pos}>CfgHorizon,"⚠ starts beyond the horizon",'
+            f'IF(ROUND($K{r},4)<=0,"in progress",'
             f'IF(SUM({span})=0,"⚠ not scheduled",'
-            f'IF(ROUND(SUM({span}),4)<ROUND({effort},4),"⚠ overruns horizon","ok")))))'))
+            f'IF(ROUND(SUM({span}),4)<ROUND({effort},4),"⚠ overruns horizon","ok"))))))))'))
 
         for c in L.TASK_DERIVED_COLS:
             S.mark_derived(ws.cell(row=r, column=c))
