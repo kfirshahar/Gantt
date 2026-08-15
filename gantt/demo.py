@@ -10,6 +10,8 @@ START_WEEK = 33
 HORIZON = 12
 
 COMPLEXITY = [("Simple", 1.0), ("Medium", 2.5), ("Complex", 5.0)]
+# Order carries the meaning: not started, in progress, finished.
+STATUSES = ["TODO", "In Progress", "Done"]
 PRIORITIES = [("P1", 1), ("P2", 2), ("P3", 3)]
 
 ASSIGNEES = [
@@ -62,17 +64,31 @@ _SUB_NAMES = {
 _CYCLE = ["Simple", "Medium", "Complex"]
 
 
+# A project part-way through, so the demo exercises the states rather than
+# showing every row as untouched: T-01 finished, T-02 under way.
+_PROGRESS = {
+    "T-01": [("Done", 100), ("Done", 100), ("Done", 100)],
+    "T-02": [("Done", 100), ("In Progress", 60), ("In Progress", 25)],
+}
+
+
 def subtasks():
-    """Yield (parent_id, name, complexity, assignee_override) rows."""
+    """One dict per sub-task, in sheet order."""
     rows = []
     for task in TASKS:
         tid, _, _, _, _, _, _, _, n_subs = task
         names = _SUB_NAMES.get(tid) or [f"Step {i + 1}" for i in range(n_subs)]
+        progress = _PROGRESS.get(tid, [])
         for i in range(n_subs):
-            name = names[i] if i < len(names) else f"Step {i + 1}"
-            complexity = _CYCLE[i % len(_CYCLE)]
-            # One override, to demonstrate that a sub-task can differ from its
-            # parent's default assignee.
-            override = "Alice" if (tid == "T-04" and i == 0) else ""
-            rows.append((tid, name, complexity, override))
+            status, pct = progress[i] if i < len(progress) else ("TODO", 0)
+            rows.append({
+                "parent": tid,
+                "name": names[i] if i < len(names) else f"Step {i + 1}",
+                "complexity": _CYCLE[i % len(_CYCLE)],
+                # One override, to show a sub-task differing from its parent's
+                # default assignee.
+                "assignee": "Alice" if (tid == "T-04" and i == 0) else "",
+                "status": status,
+                "pct_done": pct,
+            })
     return rows

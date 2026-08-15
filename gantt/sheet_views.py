@@ -214,7 +214,7 @@ def _checks(ws, start_row: int) -> None:
         ("Tasks with a problem", f'=COUNTIF({task_check},"⚠*")'),
         ("Assignees with zero capacity all horizon", '=COUNTIFS(AsgNames,"<>",CapTotals,0)'),
         ("Work days that do not fit in the horizon",
-         "=ROUND(SUM(SubEffort)-SUM(CwGrid),2)"),
+         "=ROUND(SUM(SubRemaining)-SUM(CwGrid),2)"),
         ("Assignee-weeks with no slack left",
          "=SUMPRODUCT((AwGrid>=CapGrid)*(CapGrid>0))"),
         ("Equipment-weeks short of units", "=SUMPRODUCT((EqDemand>EqpGrid)*1)"),

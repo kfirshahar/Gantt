@@ -34,7 +34,12 @@ def _row_identity(ws, r: int, rank_col: int, first_row: int) -> None:
 
 
 def _effort_expr(r: int) -> str:
-    return f'IFERROR({_pull(f"$A{r}", "SubEffort")}*1,0)'
+    """The budget scheduling draws against: what's left, not what the task took.
+
+    Done work claims nothing and part-done work claims only its balance, so
+    finished sub-tasks stop competing for capacity the moment they're marked.
+    """
+    return f'IFERROR({_pull(f"$A{r}", "SubRemaining")}*1,0)'
 
 
 # --- CalcWeek --------------------------------------------------------------
@@ -42,7 +47,7 @@ def _effort_expr(r: int) -> str:
 def build_calc_week(ws) -> None:
     hdr, first, last = L.CW_HDR_ROW, L.CW_FIRST_ROW, N.CW_LAST_ROW
     S.header_row(ws, hdr, 1,
-                 ["Rank", "Sub ID", "Assignee", "Effort", "Start WW", "Parent"])
+                 ["Rank", "Sub ID", "Assignee", "Remaining", "Start WW", "Parent"])
     _week_headers(ws)
 
     for r in range(first, last + 1):

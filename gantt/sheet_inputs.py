@@ -70,6 +70,18 @@ def build_config(ws) -> None:
 
     ws.cell(row=L.CFG_PRIORITY_FIRST + L.CFG_PRIORITY_COUNT + 1, column=1,
             value="Lower 'Order' claims capacity first.").font = S.FONT_NOTE
+
+    S.header_row(ws, L.CFG_STATUS_HDR, 1, ["Status", "Means"])
+    meanings = ["not started", "under way — uses % done", "finished, claims no capacity"]
+    for i, name in enumerate(demo.STATUSES):
+        r = L.CFG_STATUS_FIRST + i
+        ws.cell(row=r, column=1, value=name).border = S.BORDER_ALL
+        meaning = ws.cell(row=r, column=2, value=meanings[i])
+        meaning.font = S.FONT_NOTE
+        meaning.border = S.BORDER_ALL
+    ws.cell(row=L.CFG_STATUS_FIRST + L.CFG_STATUS_COUNT + 1, column=1,
+            value="Rename these freely — the meaning comes from the row, not the "
+                  "word.").font = S.FONT_NOTE
     S.widths(ws, {"A": 22, "B": 12, "C": 44})
 
 

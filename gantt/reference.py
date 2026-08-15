@@ -17,6 +17,8 @@ class SubTask:
     complexity: str
     assignee: str
     effort: float
+    status: str
+    remaining: float
     key: int
     index: int
     rank: int = 0
@@ -44,17 +46,23 @@ def build_subtasks() -> list[SubTask]:
     seen: dict[str, int] = {}
     rows: list[SubTask] = []
 
-    for parent, name, complexity, override in demo.subtasks():
+    for sub in demo.subtasks():
+        parent, name, complexity = sub["parent"], sub["name"], sub["complexity"]
         seen[parent] = seen.get(parent, 0) + 1
         index = seen[parent]
         task = tasks[parent]
-        assignee = override or task[6]
+        assignee = sub["assignee"] or task[6]
         effort = base[complexity] / prof[assignee]
+        status = sub["status"]
+        # Done claims no capacity regardless of what % done says; otherwise the
+        # balance is what remains of effort after the recorded progress.
+        remaining = 0.0 if status == "Done" else effort * (1 - sub["pct_done"] / 100)
         key = (prio[task[3]] * 1_000_000_000
                + task[7] * 1_000_000
                + task_row[parent] * 1_000
                + index)
-        rows.append(SubTask(parent, name, complexity, assignee, effort, key, index))
+        rows.append(SubTask(parent, name, complexity, assignee, effort, status,
+                            remaining, key, index))
 
     for rank, row in enumerate(sorted(rows, key=lambda s: s.key), start=1):
         row.rank = rank
@@ -68,7 +76,7 @@ def schedule_weekly(rows: list[SubTask], horizon: int | None = None) -> list[Sub
     used: dict[tuple[str, int], float] = {}
 
     for row in sorted(rows, key=lambda s: s.rank):
-        remaining = row.effort
+        remaining = row.remaining
         start = tasks[row.parent][7]
         for w in weeks:
             if w < start or remaining <= 1e-9:
@@ -125,7 +133,7 @@ def schedule_daily(rows: list[SubTask], window_start: int, window_weeks: int,
 
     for row in sorted(rows, key=lambda s: s.rank):
         burned = sum(v for w, v in row.weekly.items() if w < window_start)
-        remaining = max(0.0, row.effort - burned)
+        remaining = max(0.0, row.remaining - burned)
         start = tasks[row.parent][7]
         for w in window:
             for d in C.workdays(demo.YEAR, w):

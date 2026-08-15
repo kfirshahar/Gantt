@@ -93,11 +93,13 @@ def test_tasks_round_trip(data):
 def test_sub_tasks_round_trip(data):
     expected = demo.subtasks()
     assert len(data["sub_tasks"]) == len(expected)
-    for got, (parent, name, complexity, override) in zip(data["sub_tasks"], expected):
-        assert got["parent"] == parent
-        assert got["name"] == name
-        assert got["complexity"] == complexity
-        assert got["assignee"] == (override or None)
+    for got, sub in zip(data["sub_tasks"], expected):
+        assert got["parent"] == sub["parent"]
+        assert got["name"] == sub["name"]
+        assert got["complexity"] == sub["complexity"]
+        assert got["assignee"] == (sub["assignee"] or None)
+        assert got["status"] == sub["status"]
+        assert got["pct_done"] == sub["pct_done"]
 
 
 def test_sub_task_ids_match_the_workbook_rule(data):
@@ -111,9 +113,11 @@ def test_sub_task_ids_match_the_workbook_rule(data):
 def test_no_derived_column_leaks_into_the_export(data):
     """Derived values would be stale the moment anything upstream changed."""
     for row in data["sub_tasks"]:
-        assert set(row) == {"id", "parent", "name", "complexity", "assignee"}
+        assert set(row) == {"id", "parent", "name", "complexity", "assignee",
+                            "status", "pct_done"}
     for row in data["tasks"]:
         assert "effort" not in row and "check" not in row and "start_ww" not in row
+        assert "remaining" not in row and "status" not in row
 
 
 def test_output_is_json_serialisable(data):
@@ -132,7 +136,7 @@ def test_blank_rows_are_skipped(data):
 def test_cli_writes_a_file(generated, tmp_path):
     out = tmp_path / "plan.json"
     assert exchange._main(["export", str(generated), "-o", str(out)]) == 0
-    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 1
+    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == 2
 
 
 # --- Import ----------------------------------------------------------------
@@ -196,6 +200,53 @@ def test_merge_keeps_planning_decisions(generated, tmp_path):
 
     assert after["tasks"][0]["priority"] == "P1", "merge overwrote a planning decision"
     assert after["tasks"][0]["name"] == "Renamed upstream", "merge ignored an observed fact"
+
+
+def test_merge_updates_status_and_pct_done(generated, tmp_path):
+    """Status and % done are observed facts, so the JSON owns them like name.
+
+    Unlike priority or assignee, a weekly update naming a sub-task's new status
+    must actually land, or the whole point of the ingest pipeline is lost.
+    """
+    target = tmp_path / "plan.xlsx"
+    _load(generated).save(target)
+
+    data = exchange.export(target)
+    data["sub_tasks"][0]["status"] = "Done"
+    data["sub_tasks"][0]["pct_done"] = 100
+    data["sub_tasks"][0]["complexity"] = "Complex"   # planner-owned; must not stick
+
+    exchange.import_data(target, data, mode="merge")
+    after = exchange.export(target)
+
+    assert after["sub_tasks"][0]["status"] == "Done"
+    assert after["sub_tasks"][0]["pct_done"] == 100
+    assert after["sub_tasks"][0]["complexity"] != "Complex", \
+        "merge let an observed-fact update overwrite a planning decision"
+
+
+def test_v1_data_defaults_status_to_todo(tmp_path):
+    """A v1 export predates status/% done entirely; schema v2 must not choke on it.
+
+    First real exercise of the backward-compat rule: unknown/missing fields take
+    a defined default rather than being left to whatever garbage sits in a fresh
+    template row.
+    """
+    data = exchange.export(build(tmp_path / "seed.xlsx"))
+    data["schema_version"] = 1
+    for sub in data["sub_tasks"]:
+        del sub["status"], sub["pct_done"]
+    data["sub_tasks"].append({"parent": "T-01", "name": "Legacy row",
+                              "complexity": "Simple", "assignee": None})
+
+    out = tmp_path / "rebuilt.xlsx"
+    exchange.rebuild(data, out)
+
+    after = exchange.export(out)
+    assert after["sub_tasks"], "rebuild dropped every sub-task"
+    for row in after["sub_tasks"]:
+        assert row["status"] == "TODO", row
+        assert row["pct_done"] == 0, row
 
 
 def test_replace_overwrites_everything(generated, tmp_path):

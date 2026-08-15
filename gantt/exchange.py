@@ -29,7 +29,7 @@ from openpyxl import load_workbook
 
 from . import layout as L, names as N
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _clean(value: Any) -> Any:
@@ -194,6 +194,8 @@ def _sub_tasks(wb) -> list[dict]:
             "name": _clean(ws.cell(row=row, column=L.S_NAME).value),
             "complexity": _clean(ws.cell(row=row, column=L.S_COMPLEXITY).value),
             "assignee": _clean(ws.cell(row=row, column=L.S_ASSIGNEE).value),
+            "status": _clean(ws.cell(row=row, column=L.S_STATUS).value),
+            "pct_done": _clean(ws.cell(row=row, column=L.S_PCT_DONE).value),
         })
     return out
 
@@ -260,11 +262,16 @@ TASK_FIELD_COL = {
 SUB_FIELD_COL = {
     "parent": L.S_PARENT, "name": L.S_NAME,
     "complexity": L.S_COMPLEXITY, "assignee": L.S_ASSIGNEE,
+    "status": L.S_STATUS, "pct_done": L.S_PCT_DONE,
 }
 
 # Descriptive facts come from the source system; the rest are the planner's.
 TASK_JSON_OWNED = {"name", "category"}
-SUB_JSON_OWNED = {"name"}
+SUB_JSON_OWNED = {"name", "status", "pct_done"}
+
+# A field missing from an older schema version's record takes this rather than
+# being left to whatever a fresh template row happens to hold.
+SUB_FIELD_DEFAULTS = {"status": "TODO", "pct_done": 0}
 
 
 class Change:
@@ -289,14 +296,19 @@ def _set(changes, ws, row, column, field, value, reason):
 
 
 def _plan_rows(changes, ws, rows, field_col, first_row, last_row,
-               key_of, existing_keys, json_owned, mode) -> set:
+               key_of, existing_keys, json_owned, mode, defaults=None) -> set:
     """Update matched rows and append unmatched ones.
 
     Returns the rows this import actually touched. `existing_keys` describes the
     workbook as it stands, so it is emphatically not that set: a row present in
     the file but absent from the JSON must be cleared under replace, and using
     the wrong set here leaves demo data mixed into freshly imported data.
+
+    `defaults` covers a field an older schema version never wrote at all: a new
+    row takes the default rather than whatever a fresh template row happens to
+    hold, which is the backward-compatibility rule in practice.
     """
+    defaults = defaults or {}
     free = [r for r in range(first_row, last_row + 1)
             if r not in existing_keys.values()
             and _row_is_empty(ws, r, list(field_col.values()))]
@@ -317,7 +329,12 @@ def _plan_rows(changes, ws, rows, field_col, first_row, last_row,
             used.add(row)
             for field, column in field_col.items():
                 if field in record:
-                    _set(changes, ws, row, column, field, record[field], "replace")
+                    value = record[field]
+                elif field in defaults:
+                    value = defaults[field]
+                else:
+                    continue
+                _set(changes, ws, row, column, field, value, "replace")
         return used
 
     for record in rows:
@@ -335,12 +352,16 @@ def _plan_rows(changes, ws, rows, field_col, first_row, last_row,
         used.add(row)
 
         for field, column in field_col.items():
-            if field not in record:
+            if field in record:
+                value = record[field]
+            elif inserting and field in defaults:
+                value = defaults[field]
+            else:
                 continue
             # Ownership only constrains updates; a new row is written in full.
             if mode == "merge" and not inserting and field not in json_owned:
                 continue
-            _set(changes, ws, row, column, field, record[field],
+            _set(changes, ws, row, column, field, value,
                  "insert" if inserting else "update")
     return used
 
@@ -388,7 +409,7 @@ def _plan_sub_tasks(changes, wb, data, mode):
     used = _plan_rows(changes, ws, data.get("sub_tasks", []), SUB_FIELD_COL,
                       L.SUB_FIRST_ROW, N.LAST_SUB_ROW,
                       lambda r: (r["parent"], r.get("name")), existing,
-                      SUB_JSON_OWNED, mode)
+                      SUB_JSON_OWNED, mode, defaults=SUB_FIELD_DEFAULTS)
     if mode == "replace":
         _plan_clear(changes, ws, SUB_FIELD_COL, used,
                     L.SUB_FIRST_ROW, N.LAST_SUB_ROW)

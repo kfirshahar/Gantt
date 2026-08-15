@@ -46,6 +46,8 @@ def refresh() -> None:
                                  1, L.CFG_PRIORITY_FIRST + L.CFG_PRIORITY_COUNT - 1),
         "PrioRank": L.abs_range(L.CONFIG, 2, L.CFG_PRIORITY_FIRST,
                                 2, L.CFG_PRIORITY_FIRST + L.CFG_PRIORITY_COUNT - 1),
+        "StatusNames": L.abs_range(L.CONFIG, 1, L.CFG_STATUS_FIRST,
+                                   1, L.CFG_STATUS_FIRST + L.CFG_STATUS_COUNT - 1),
         # Assignees
         "AsgNames": L.abs_range(L.ASSIGNEES, 1, L.GRID_FIRST_DATA_ROW, 1, _LAST_ASG),
         "AsgProf": L.abs_range(L.ASSIGNEES, 2, L.GRID_FIRST_DATA_ROW, 2, _LAST_ASG),
@@ -75,6 +77,10 @@ def refresh() -> None:
         "SubAsgEff": L.abs_range(L.SUBTASKS, L.S_EFF_ASSIGNEE, L.SUB_FIRST_ROW,
                                  L.S_EFF_ASSIGNEE, _LAST_SUB),
         "SubEffort": L.abs_range(L.SUBTASKS, L.S_EFFORT, L.SUB_FIRST_ROW, L.S_EFFORT, _LAST_SUB),
+        "SubRemaining": L.abs_range(L.SUBTASKS, L.S_REMAINING, L.SUB_FIRST_ROW,
+                                    L.S_REMAINING, _LAST_SUB),
+        "SubStatus": L.abs_range(L.SUBTASKS, L.S_STATUS, L.SUB_FIRST_ROW,
+                                 L.S_STATUS, _LAST_SUB),
         "SubKey": L.abs_range(L.SUBTASKS, L.S_KEY, L.SUB_FIRST_ROW, L.S_KEY, _LAST_SUB),
         "SubRank": L.abs_range(L.SUBTASKS, L.S_RANK, L.SUB_FIRST_ROW, L.S_RANK, _LAST_SUB),
         # CalcWeek

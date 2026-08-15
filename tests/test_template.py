@@ -73,7 +73,7 @@ def test_defined_names_registered(formulas):
 def test_dropdowns_on_cross_referencing_columns(formulas):
     expected = {
         L.TASKS: {"PrioNames", "CplxNames", "EqpNames", "AsgNames"},
-        L.SUBTASKS: {"TaskIDs", "CplxNames", "AsgNames"},
+        L.SUBTASKS: {"TaskIDs", "CplxNames", "AsgNames", "StatusNames"},
     }
     for sheet, names in expected.items():
         found = {dv.formula1.lstrip("=") for dv in formulas[sheet].data_validations.dataValidation}
@@ -85,8 +85,8 @@ def test_parent_column_is_not_merged(formulas):
     ws = formulas[L.SUBTASKS]
     assert not ws.merged_cells.ranges
     # every demo row still carries its real parent id
-    for i, (parent, *_rest) in enumerate(demo.subtasks()):
-        assert ws.cell(row=L.SUB_FIRST_ROW + i, column=L.S_PARENT).value == parent
+    for i, sub in enumerate(demo.subtasks()):
+        assert ws.cell(row=L.SUB_FIRST_ROW + i, column=L.S_PARENT).value == sub["parent"]
 
 
 def test_no_formula_references_a_stale_sheet(formulas):
@@ -141,6 +141,35 @@ def test_weekly_allocations_match_reference(values, solved):
         for week, col in cols.items():
             got = ws.cell(row=row, column=col).value
             assert abs(got - expected.weekly[week]) < TOL, f"rank {rank} {week}"
+
+
+def test_done_work_claims_no_capacity(values, solved):
+    """Status/% done constrain scheduling, not merely display.
+
+    T-01 is entirely Done in the demo data, so none of its capacity should be
+    scheduled. T-02 mixes Done and In Progress sub-tasks, so only the
+    unfinished balance should compete for capacity.
+    """
+    ws = values[L.CALC_WEEK]
+    cols = _week_cols()
+    by_id = {f"{s.parent}.{s.index:02d}": s for s in solved}
+    checked_done = checked_partial = 0
+
+    for i in range(len(solved)):
+        row = L.CW_FIRST_ROW + i
+        sub_id = ws.cell(row=row, column=L.CW_SUBID).value
+        sub = by_id[sub_id]
+        total = sum(ws.cell(row=row, column=col).value for col in cols.values())
+        if sub.status == "Done":
+            assert total < TOL, f"{sub_id} is Done but still claims capacity"
+            checked_done += 1
+        elif sub.status == "In Progress":
+            assert abs(total - sub.remaining) < TOL, sub_id
+            assert total < sub.effort - TOL, f"{sub_id} ignored its % done"
+            checked_partial += 1
+
+    assert checked_done, "demo data must contain a Done sub-task"
+    assert checked_partial, "demo data must contain an In Progress sub-task"
 
 
 def test_no_week_exceeds_assignee_capacity(values, solved):
@@ -243,6 +272,27 @@ def test_task_effort_is_sum_of_subtasks(values, solved):
         row = L.TASK_FIRST_ROW + i
         assert ws.cell(row=row, column=L.T_N_SUBS).value == task[8]
         assert abs(ws.cell(row=row, column=L.T_EFFORT).value - round(totals[task[0]], 2)) < 0.01
+
+
+def test_task_status_and_remaining_derive_from_subtasks(values, solved):
+    """Two sources of truth for one fact would disagree, so neither is typed in.
+
+    T-01 is entirely Done in the demo data, T-02 mixes Done and In Progress, and
+    the rest have no recorded progress at all.
+    """
+    ws = values[L.TASKS]
+    remaining: dict[str, float] = {}
+    for s in solved:
+        remaining[s.parent] = remaining.get(s.parent, 0.0) + s.remaining
+
+    expected_status = {"T-01": "Done", "T-02": "In Progress"}
+    for i, task in enumerate(demo.TASKS):
+        row = L.TASK_FIRST_ROW + i
+        tid = task[0]
+        assert ws.cell(row=row, column=L.T_STATUS).value == \
+            expected_status.get(tid, "TODO"), tid
+        assert abs(ws.cell(row=row, column=L.T_REMAINING).value
+                   - round(remaining[tid], 2)) < 0.01, tid
 
 
 def test_daily_allocations_match_reference(values, solved):
@@ -546,8 +596,9 @@ def test_start_week_is_a_real_calendar_week(built, tmp_path_factory):
 def test_window_opened_mid_project(built, tmp_path_factory):
     """A window that starts after work has begun must show residual effort only.
 
-    This exercises the carry-in seeding: remaining = effort minus everything
-    already burned in weeks before the window.
+    This exercises the carry-in seeding: remaining = the scheduling budget
+    (effort net of status/% done) minus everything already burned in weeks
+    before the window.
     """
     _needs_recalc()
 
@@ -582,7 +633,7 @@ def test_window_opened_mid_project(built, tmp_path_factory):
         sub = by_rank[ws.cell(row=row, column=L.CD_RANK).value]
         burned = sum(v for w, v in sub.weekly.items() if w < start)
         assert abs(ws.cell(row=row, column=L.CD_REMAINING).value
-                   - max(0.0, sub.effort - burned)) < TOL
+                   - max(0.0, sub.remaining - burned)) < TOL
 
 
 def test_holidays_remove_day_capacity(values):

@@ -52,6 +52,13 @@ CFG_COMPLEXITY_COUNT = 3
 CFG_PRIORITY_HDR = 13
 CFG_PRIORITY_FIRST = 14
 CFG_PRIORITY_COUNT = 3
+# Status names are configurable, but their *meaning* is positional: the first is
+# not started, the second is in progress, the third is finished. Formulas index
+# by position, so renaming one does not change what it does.
+CFG_STATUS_HDR = 18
+CFG_STATUS_FIRST = 19
+CFG_STATUS_COUNT = 3
+STATUS_TODO, STATUS_ACTIVE, STATUS_DONE = 1, 2, 3
 
 # --- Grid sheets (Capacity / Equipment): week columns start at B -----------
 
@@ -70,9 +77,11 @@ T_DEF_ASSIGNEE = 7
 T_START_WW = 8
 T_N_SUBS = 9
 T_EFFORT = 10
-T_CALC_START = 11
-T_CALC_END = 12
-T_CHECK = 13
+T_REMAINING = 11
+T_STATUS = 12
+T_CALC_START = 13
+T_CALC_END = 14
+T_CHECK = 15
 TASK_FIRST_ROW = 2
 
 TASK_HEADERS = {
@@ -86,13 +95,16 @@ TASK_HEADERS = {
     T_START_WW: "Earliest start WW",
     T_N_SUBS: "# Sub-tasks",
     T_EFFORT: "Effort (days)",
+    T_REMAINING: "Remaining (days)",
+    T_STATUS: "Status",
     T_CALC_START: "Start WW",
     T_CALC_END: "End WW",
     T_CHECK: "Check",
 }
 TASK_INPUT_COLS = [T_ID, T_NAME, T_CATEGORY, T_PRIORITY, T_COMPLEXITY,
                    T_EQUIPMENT, T_DEF_ASSIGNEE, T_START_WW]
-TASK_DERIVED_COLS = [T_N_SUBS, T_EFFORT, T_CALC_START, T_CALC_END, T_CHECK]
+TASK_DERIVED_COLS = [T_N_SUBS, T_EFFORT, T_REMAINING, T_STATUS,
+                     T_CALC_START, T_CALC_END, T_CHECK]
 
 # --- Sub-Tasks sheet columns ----------------------------------------------
 
@@ -101,11 +113,14 @@ S_ID = 2
 S_NAME = 3
 S_COMPLEXITY = 4
 S_ASSIGNEE = 5
-S_EFF_ASSIGNEE = 6
-S_EFFORT = 7
-S_KEY = 8
-S_RANK = 9
-S_CHECK = 10
+S_STATUS = 6
+S_PCT_DONE = 7
+S_EFF_ASSIGNEE = 8
+S_EFFORT = 9
+S_REMAINING = 10
+S_KEY = 11
+S_RANK = 12
+S_CHECK = 13
 SUB_FIRST_ROW = 2
 
 SUB_HEADERS = {
@@ -114,14 +129,18 @@ SUB_HEADERS = {
     S_NAME: "Sub-task name",
     S_COMPLEXITY: "Complexity",
     S_ASSIGNEE: "Assignee (blank = inherit)",
+    S_STATUS: "Status",
+    S_PCT_DONE: "% done",
     S_EFF_ASSIGNEE: "Effective assignee",
     S_EFFORT: "Effort (days)",
+    S_REMAINING: "Remaining (days)",
     S_KEY: "Sort key",
     S_RANK: "Rank",
     S_CHECK: "Check",
 }
-SUB_INPUT_COLS = [S_PARENT, S_NAME, S_COMPLEXITY, S_ASSIGNEE]
-SUB_DERIVED_COLS = [S_ID, S_EFF_ASSIGNEE, S_EFFORT, S_KEY, S_RANK, S_CHECK]
+SUB_INPUT_COLS = [S_PARENT, S_NAME, S_COMPLEXITY, S_ASSIGNEE, S_STATUS, S_PCT_DONE]
+SUB_DERIVED_COLS = [S_ID, S_EFF_ASSIGNEE, S_EFFORT, S_REMAINING,
+                    S_KEY, S_RANK, S_CHECK]
 
 # --- CalcWeek sheet --------------------------------------------------------
 

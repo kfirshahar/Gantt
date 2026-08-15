@@ -60,6 +60,21 @@ def build_tasks(ws) -> None:
                 value=f'=IF($A{r}="","",COUNTIF(SubParent,$A{r}))')
         ws.cell(row=r, column=L.T_EFFORT,
                 value=f'=IF($A{r}="","",ROUND({effort},2))').number_format = "0.00"
+        ws.cell(row=r, column=L.T_REMAINING,
+                value=f'=IF($A{r}="","",ROUND(SUMIF(SubParent,$A{r},SubRemaining),2))'
+                ).number_format = "0.00"
+        # Derived the same way effort is: a task's own status column would be a
+        # second source of truth that can disagree with what its sub-tasks say.
+        # Status *names* are configurable, so the label is looked up by position
+        # rather than hard-coded, matching how Config documents the convention.
+        done_label = f'INDEX(StatusNames,{L.STATUS_DONE})'
+        todo_label = f'INDEX(StatusNames,{L.STATUS_TODO})'
+        active_label = f'INDEX(StatusNames,{L.STATUS_ACTIVE})'
+        ws.cell(row=r, column=L.T_STATUS, value=(
+            f'=IF($A{r}="","",IF($I{r}=0,"",'
+            f'IF(COUNTIFS(SubParent,$A{r},SubStatus,{done_label})=$I{r},{done_label},'
+            f'IF(COUNTIFS(SubParent,$A{r},SubStatus,{todo_label})=$I{r},{todo_label},'
+            f'{active_label}))))'))
         # Start and end are resolved as grid positions and then rendered through
         # the shared label, so a task running into next year reads WW01 '27
         # rather than a week number that does not exist.
@@ -95,7 +110,8 @@ def build_tasks(ws) -> None:
     _check_formatting(ws, L.T_CHECK, L.TASK_FIRST_ROW, N.LAST_TASK_ROW)
 
     S.widths(ws, {"A": 10, "B": 24, "C": 12, "D": 9, "E": 12, "F": 15, "G": 17,
-                  "H": 17, "I": 12, "J": 13, "K": 10, "L": 10, "M": 22})
+                  "H": 17, "I": 12, "J": 13, "K": 13, "L": 14, "M": 10, "N": 10,
+                  "O": 22})
     ws.freeze_panes = "C2"
     r = N.LAST_TASK_ROW + 2
     ws.cell(row=r, column=1,
@@ -110,13 +126,15 @@ def build_subtasks(ws) -> None:
     for c in L.SUB_DERIVED_COLS:
         ws.cell(row=1, column=c).fill = S.FILL_OUTPUT_HDR
 
-    for i, (parent, name, complexity, override) in enumerate(demo.subtasks()):
+    for i, sub in enumerate(demo.subtasks()):
         r = L.SUB_FIRST_ROW + i
-        ws.cell(row=r, column=L.S_PARENT, value=parent)
-        ws.cell(row=r, column=L.S_NAME, value=name)
-        ws.cell(row=r, column=L.S_COMPLEXITY, value=complexity)
-        if override:
-            ws.cell(row=r, column=L.S_ASSIGNEE, value=override)
+        ws.cell(row=r, column=L.S_PARENT, value=sub["parent"])
+        ws.cell(row=r, column=L.S_NAME, value=sub["name"])
+        ws.cell(row=r, column=L.S_COMPLEXITY, value=sub["complexity"])
+        if sub["assignee"]:
+            ws.cell(row=r, column=L.S_ASSIGNEE, value=sub["assignee"])
+        ws.cell(row=r, column=L.S_STATUS, value=sub["status"])
+        ws.cell(row=r, column=L.S_PCT_DONE, value=sub["pct_done"])
 
     for r in range(L.SUB_FIRST_ROW, N.LAST_SUB_ROW + 1):
         idx = f"COUNTIF($A${L.SUB_FIRST_ROW}:$A{r},$A{r})"
@@ -129,22 +147,27 @@ def build_subtasks(ws) -> None:
             f'=IF($A{r}="","",IF($E{r}<>"",$E{r},'
             f'IFERROR(INDEX(TaskDefAsg,{parent_row})&"","")))'))
         ws.cell(row=r, column=L.S_EFFORT, value=(
-            f'=IF(OR($A{r}="",$D{r}="",$F{r}=""),"",'
+            f'=IF(OR($A{r}="",$D{r}="",$H{r}=""),"",'
             f'IFERROR(INDEX(CplxDays,MATCH($D{r},CplxNames,0))'
-            f'/INDEX(AsgProf,MATCH($F{r},AsgNames,0)),""))')).number_format = "0.00"
+            f'/INDEX(AsgProf,MATCH($H{r},AsgNames,0)),""))')).number_format = "0.00"
+        # Done claims no capacity regardless of what % done says; otherwise the
+        # balance is what remains of effort after the recorded progress.
+        ws.cell(row=r, column=L.S_REMAINING, value=(
+            f'=IF($I{r}="","",IF(IFERROR(MATCH($F{r},StatusNames,0),0)={L.STATUS_DONE},0,'
+            f'$I{r}*(1-N($G{r})/100)))')).number_format = "0.00"
         ws.cell(row=r, column=L.S_KEY, value=(
-            f'=IF($G{r}="","",IFERROR('
+            f'=IF($I{r}="","",IFERROR('
             f'INDEX(PrioRank,MATCH(INDEX(TaskPrio,{parent_row}),PrioNames,0))*1000000000'
             f'+INDEX(TaskStartWW,{parent_row})*1000000'
             f'+{parent_row}*1000+{idx},""))')).number_format = "0"
         ws.cell(row=r, column=L.S_RANK,
-                value=f'=IF($H{r}="","",RANK($H{r},SubKey,1))')
+                value=f'=IF($K{r}="","",RANK($K{r},SubKey,1))')
         ws.cell(row=r, column=L.S_CHECK, value=(
             f'=IF($A{r}="","",'
             f'IF(ISNA({parent_row}),"⚠ unknown parent",'
             f'IF($D{r}="","⚠ no complexity",'
-            f'IF($F{r}="","⚠ no assignee",'
-            f'IF($G{r}="","⚠ check proficiency","ok")))))'))
+            f'IF($H{r}="","⚠ no assignee",'
+            f'IF($K{r}="","⚠ check proficiency","ok")))))'))
 
         for c in L.SUB_DERIVED_COLS:
             S.mark_derived(ws.cell(row=r, column=c))
@@ -154,11 +177,12 @@ def build_subtasks(ws) -> None:
     _list_validation(ws, "TaskIDs", L.S_PARENT, L.SUB_FIRST_ROW, N.LAST_SUB_ROW)
     _list_validation(ws, "CplxNames", L.S_COMPLEXITY, L.SUB_FIRST_ROW, N.LAST_SUB_ROW)
     _list_validation(ws, "AsgNames", L.S_ASSIGNEE, L.SUB_FIRST_ROW, N.LAST_SUB_ROW)
+    _list_validation(ws, "StatusNames", L.S_STATUS, L.SUB_FIRST_ROW, N.LAST_SUB_ROW)
     _check_formatting(ws, L.S_CHECK, L.SUB_FIRST_ROW, N.LAST_SUB_ROW)
     _parent_looks_merged(ws)
 
-    S.widths(ws, {"A": 12, "B": 12, "C": 26, "D": 12, "E": 22, "F": 18,
-                  "G": 12, "H": 16, "I": 8, "J": 22})
+    S.widths(ws, {"A": 12, "B": 12, "C": 26, "D": 12, "E": 22, "F": 14,
+                  "G": 10, "H": 18, "I": 12, "J": 14, "K": 16, "L": 8, "M": 22})
     ws.freeze_panes = "C2"
     r = N.LAST_SUB_ROW + 2
     ws.cell(row=r, column=1,

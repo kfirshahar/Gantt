@@ -49,11 +49,18 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "You never type a duration. Each sub-task's effort is the base days for its "
         "complexity divided by its assignee's proficiency. A task's effort is the sum "
         "of its sub-tasks.",
+        "What actually competes for capacity is Remaining, not Effort: Status TODO or "
+        "In Progress claims effort minus % done, and Status Done claims nothing at all "
+        "regardless of what % done says. Mark work Done and it stops occupying anyone's "
+        "week.",
         "Sub-tasks are then placed into weeks in a fixed queue order. Each one takes "
         "whatever days its assignee has left in that week, and spills into the next "
-        "week, and the next, until its effort is used up.",
+        "week, and the next, until its remaining effort is used up.",
         "So duration is an outcome of capacity, not something you set. Give someone "
         "fewer days in a week and the work simply takes longer.",
+        "A task's own Status and Remaining are never typed in — they are rolled up "
+        "from its sub-tasks, the same way its Effort is. Done means every sub-task is "
+        "Done; TODO means none has started; anything else is In Progress.",
     ]),
     ("Rank — you never type it, and it cannot be broken", [
         "Rank is only the position in that queue: rank 1 is served first, rank 2 next. "
@@ -74,7 +81,8 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "category, priority, complexity, equipment, default assignee, earliest start WW.",
         "2. On Sub-Tasks, add one row per piece of work. Fill only Parent task, Sub-task "
         "name and Complexity. Leave Assignee blank to inherit the parent's default — "
-        "fill it in only for the exceptions.",
+        "fill it in only for the exceptions. Status defaults to TODO and % done to 0; "
+        "update them as work happens.",
         "3. Confirm the Check column reads 'ok' on both tabs.",
         "The computed columns are already filled in down to row 601 on Sub-Tasks and "
         "row 31 on Tasks. Do not copy formulas down — just type in the white cells.",
