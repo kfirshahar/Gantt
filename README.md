@@ -163,6 +163,49 @@ Two details worth knowing:
   are recorded inside the file, so a later export reads it at its real size
   rather than assuming the defaults and truncating it.
 
+## Which command to use
+
+| Command | What it does | Sizes the workbook? |
+|---|---|---|
+| `build_template.py` | A fresh template holding the demo data. No JSON involved. | No — defaults |
+| `exchange export` | Workbook → JSON | n/a |
+| `exchange import --mode merge` | JSON → an existing workbook, honouring field ownership. Never deletes. | No |
+| `exchange import --mode replace` | JSON → an existing workbook, clearing whatever the JSON omits. | No |
+| `exchange rebuild` | `build` + `import --mode replace`, in one step | **Yes**, to fit the data |
+
+**`rebuild` is the one to reach for.** Building and importing separately is the
+same operation in two commands, minus the sizing: the template is generated at
+its default 30 tasks / 600 sub-tasks and a larger plan fails with *"Tasks is
+full"*. Only `rebuild` sees the data before the workbook is generated, so only
+`rebuild` can size it.
+
+### Migrating to a new template version
+
+Whenever the template changes shape — new columns, a new schema version — the
+path is always the same three commands:
+
+```powershell
+# 1. take the data out of the old file
+.venv\Scripts\python -m gantt.exchange export old_plan.xlsx -o data.json
+
+# 2. build the new template around it, sized to fit
+.venv\Scripts\python -m gantt.exchange rebuild data.json -o new_plan.xlsx
+
+# 3. confirm nothing was lost
+.venv\Scripts\python -m gantt.exchange export new_plan.xlsx -o check.json
+.venv\Scripts\python -c "import json;a=json.load(open('data.json'));b=json.load(open('check.json'));a.pop('source');b.pop('source');print('identical:', a==b)"
+```
+
+Columns the old file never had take their defaults — a schema v1 export lands in
+a v2 template with `status` = `TODO` and `% done` = 0. That is the whole
+compatibility story; there is no migration script to write.
+
+Step 3 proves the *data* survived. It does not prove the workbook still
+*behaves* the same, so also open it and compare a computed figure against the
+old file — `Gantt-High` → `Avail` in a week containing a holiday is the useful
+one, because dates are the only typed values in the JSON and the only ones that
+can come back as text.
+
 ## Layout
 
 The workbook opens on a **Guide** tab explaining the fill order, how scheduling
