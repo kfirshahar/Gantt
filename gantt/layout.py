@@ -59,6 +59,11 @@ CFG_PRIORITY_COUNT = 3
 
 GRID_FIRST_WEEK_COL = 2      # column B
 GRID_FIRST_DATA_ROW = 2
+# Classic conditional formatting cannot reference another worksheet; Excel
+# promotes any rule that does into an x14 extension, which openpyxl drops on
+# save. Each sheet therefore mirrors the flag it needs into a hidden row of
+# its own and the rules stay local. Cell formulas have no such restriction.
+GRID_FLAG_ROW = 15
 
 # --- Tasks sheet columns ---------------------------------------------------
 
@@ -178,6 +183,7 @@ CD_FIRST_DAY_COL = 7         # column G
 
 # --- Gantt-Deep window inputs ---------------------------------------------
 
+GD_FLAG_ROW = 5              # mirrors CalcDay's in-window flags
 GD_WINDOW_START_CELL = "B3"
 GD_WINDOW_WEEKS_CELL = "B4"
 

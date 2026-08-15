@@ -112,3 +112,37 @@ def _cf_ranges(path) -> int:
     from openpyxl import load_workbook
     book = load_workbook(path)
     return sum(len(ws.conditional_formatting._cf_rules) for ws in book.worksheets)
+
+
+def test_no_rule_reaches_into_another_sheet(tmp_path):
+    """Classic conditional formatting cannot reference another worksheet.
+
+    Excel promotes any rule that does into an x14 extension block, which
+    openpyxl neither reads nor preserves — so such a rule silently disappears
+    the first time the file is edited in place. Nine of these cost eight rules
+    on the first Excel save. Each sheet now mirrors what it needs into a hidden
+    row of its own; cell formulas may still reach across freely.
+    """
+    import re
+    import zipfile
+
+    from gantt.build import build
+
+    with zipfile.ZipFile(build(tmp_path / "generated.xlsx")) as archive:
+        order = re.findall(r'<sheet name="([^"]+)"',
+                           archive.read("xl/workbook.xml").decode())
+        offenders = []
+        for index, name in enumerate(order, start=1):
+            try:
+                xml = archive.read(f"xl/worksheets/sheet{index}.xml").decode()
+            except KeyError:
+                continue
+            for block in re.finditer(
+                    r'<conditionalFormatting sqref="([^"]+)">(.*?)</conditionalFormatting>',
+                    xml, re.S):
+                for formula in re.findall(r"<formula>(.*?)</formula>", block.group(2)):
+                    if "!" in formula:
+                        offenders.append(f"{name} {block.group(1)}: {formula}")
+
+    assert not offenders, "conditional formatting must stay on its own sheet:\n  " + \
+        "\n  ".join(offenders)

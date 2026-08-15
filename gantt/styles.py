@@ -104,25 +104,33 @@ def mark_derived(cell) -> None:
     cell.fill = FILL_DERIVED
 
 
+def write_flag_row(ws, first_col: int, count: int, row: int, source) -> None:
+    """Mirror a flag from another sheet into a hidden row on this one.
+
+    Conditional formatting has to read the flag from its own sheet, but nothing
+    stops an ordinary cell formula fetching it. `source` is called with the
+    0-based column offset and returns the formula body. Hidden so it never shows.
+    """
+    for i in range(count):
+        ws.cell(row=row, column=first_col + i, value=f"={source(i)}")
+    ws.row_dimensions[row].hidden = True
+
+
 def grey_inactive_weeks(ws, first_col: int, last_col: int,
-                        first_row: int, last_row: int) -> None:
+                        first_row: int, last_row: int, flag_row: int) -> None:
     """Dim week columns that fall outside the horizon set on Config.
 
     The columns are always present; this is what makes them read as switched
-    off rather than as weeks with no work in them. The test reads CalcWeek's
-    active flag rather than comparing week numbers, which would misbehave once
-    the plan crosses into the next year.
+    off rather than as weeks with no work in them. `flag_row` must be on this
+    same sheet — see `write_flag_row`.
     """
     from openpyxl.formatting.rule import Rule
     from openpyxl.styles.differential import DifferentialStyle
     from openpyxl.utils import get_column_letter
 
-    from . import layout as L
-
     first = get_column_letter(first_col)
-    flag = f"{L.sheet_ref(L.CALC_WEEK)}!{L.col(L.CW_FIRST_WEEK_COL)}${L.CW_ACTIVE_ROW}"
     ws.conditional_formatting.add(
         f"{first}{first_row}:{get_column_letter(last_col)}{last_row}",
         Rule(type="expression",
              dxf=DifferentialStyle(fill=CF_WEEKEND, font=Font(color=cf_color(MUTED))),
-             formula=[f"{flag}=0"]))
+             formula=[f"{first}${flag_row}=0"]))

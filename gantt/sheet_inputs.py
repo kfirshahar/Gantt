@@ -128,8 +128,10 @@ def build_capacity(ws) -> None:
         total.border = S.BORDER_ALL
         S.mark_derived(total)
 
+    S.write_flag_row(ws, L.GRID_FIRST_WEEK_COL, L.WEEK_COLS, L.GRID_FLAG_ROW,
+                     lambda i: f"INDEX(CwActive,{i + 1})")
     S.grey_inactive_weeks(ws, L.GRID_FIRST_WEEK_COL, N.LAST_WEEK_COL,
-                          1, N.LAST_ASG_ROW)
+                          1, N.LAST_ASG_ROW, L.GRID_FLAG_ROW)
     S.widths(ws, {"A": 18, L.col(total_col): 9})
     ws.freeze_panes = "B2"
     r = N.LAST_ASG_ROW + 2
@@ -158,8 +160,10 @@ def build_equipment(ws) -> None:
             cell.alignment = S.CENTER
             cell.border = S.BORDER_ALL
 
+    S.write_flag_row(ws, L.GRID_FIRST_WEEK_COL, L.WEEK_COLS, L.GRID_FLAG_ROW,
+                     lambda i: f"INDEX(CwActive,{i + 1})")
     S.grey_inactive_weeks(ws, L.GRID_FIRST_WEEK_COL, N.LAST_WEEK_COL,
-                          1, N.LAST_EQP_ROW)
+                          1, N.LAST_EQP_ROW, L.GRID_FLAG_ROW)
     S.widths(ws, {"A": 18})
     ws.freeze_panes = "B2"
     r = N.LAST_EQP_ROW + 2

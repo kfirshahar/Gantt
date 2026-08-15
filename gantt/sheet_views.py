@@ -9,6 +9,7 @@ from . import demo, layout as L, names as N, styles as S
 # --- Gantt-High ------------------------------------------------------------
 
 GH_WEEK_COL = 3          # weeks start at column C
+GH_FLAG_ROW = 95         # hidden; keeps the greying rules off other sheets
 GH_LOAD_HDR = 4
 GH_LOAD_FIRST = 5
 
@@ -18,6 +19,8 @@ def build_gantt_high(ws) -> None:
             "Read-only. Weeks run across; every figure is in work days.")
 
     last_week_col = GH_WEEK_COL + L.WEEK_COLS - 1
+    S.write_flag_row(ws, GH_WEEK_COL, L.WEEK_COLS, GH_FLAG_ROW,
+                     lambda i: f"INDEX(CwActive,{i + 1})")
     load_last = _assignee_load(ws, last_week_col)
     timeline_last = _task_timeline(ws, load_last + 2, last_week_col)
     equip_last = _equipment_block(ws, timeline_last + 2, last_week_col)
@@ -102,7 +105,7 @@ def _assignee_load(ws, last_col: int) -> int:
             bottom=Side(style="medium", color=S.INK))
 
     last = GH_LOAD_FIRST + 2 * L.MAX_ASSIGNEES - 1
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, GH_LOAD_HDR, last)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, GH_LOAD_HDR, last, GH_FLAG_ROW)
     return last
 
 
@@ -144,7 +147,7 @@ def _task_timeline(ws, start_row: int, last_col: int) -> int:
         f"{bar}:{L.col(last_col)}{last}",
         Rule(type="expression", dxf=DifferentialStyle(fill=S.CF_BAR),
              formula=[f"AND(ISNUMBER({bar}),{bar}>0)"]))
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, GH_FLAG_ROW)
     return last
 
 
@@ -192,7 +195,7 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
         ws.cell(row=dem_row, column=1).border = S.BORDER_ALL
 
     last = first + 2 * L.MAX_EQUIPMENT - 1
-    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last)
+    S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, hdr, last, GH_FLAG_ROW)
     return last
 
 
@@ -264,6 +267,10 @@ def build_gantt_deep(ws) -> None:
             value=f"Type over either cell. Maximum {L.MAX_DEEP_WEEKS} weeks — "
                   f"wider windows slow recalculation.").font = S.FONT_NOTE
 
+    S.write_flag_row(
+        ws, GD_DAY_COL, L.DEEP_DAY_COLS, L.GD_FLAG_ROW,
+        lambda i: (f"{L.sheet_ref(L.CALC_DAY)}!"
+                   f"{L.col(L.CD_FIRST_DAY_COL + i)}${L.CD_INWINDOW_ROW}"))
     _deep_headers(ws)
     _deep_rows(ws)
 
@@ -299,14 +306,16 @@ def _deep_headers(ws) -> None:
 
     last = GD_DAY_COL + L.DEEP_DAY_COLS - 1
     cd = L.sheet_ref(L.CALC_DAY)
-    # Grey out columns outside the window and holidays; they cannot be hidden
-    # dynamically without macros.
+    # Grey out columns outside the window; they cannot be hidden dynamically
+    # without macros. Read from this sheet's own hidden flag row, because a rule
+    # that reaches into CalcDay would be promoted to an x14 extension that
+    # openpyxl cannot preserve.
     for row in (GD_WEEK_ROW, GD_DAY_ROW, GD_DATE_ROW):
         ws.conditional_formatting.add(
             f"{L.col(GD_DAY_COL)}{row}:{L.col(last)}{row}",
             Rule(type="expression", dxf=DifferentialStyle(fill=S.CF_WEEKEND,
                                                           font=Font(color=S.cf_color(S.MUTED))),
-                 formula=[f"{cd}!{L.col(L.CD_FIRST_DAY_COL)}${L.CD_INWINDOW_ROW}=0"]))
+                 formula=[f"{L.col(GD_DAY_COL)}${L.GD_FLAG_ROW}=0"]))
 
 
 def _deep_rows(ws) -> None:
@@ -344,7 +353,7 @@ def _deep_rows(ws) -> None:
         formula=[f"AND(ISNUMBER({bar}),{bar}>0)"]))
     ws.conditional_formatting.add(body, Rule(
         type="expression", dxf=DifferentialStyle(fill=S.CF_WEEKEND),
-        formula=[f"{cd}!{L.col(L.CD_FIRST_DAY_COL)}${L.CD_INWINDOW_ROW}=0"]))
+        formula=[f"{L.col(GD_DAY_COL)}${L.GD_FLAG_ROW}=0"]))
 
     # Same hide-the-repeats treatment as the Sub-Tasks tab.
     ws.conditional_formatting.add(
