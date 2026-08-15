@@ -56,6 +56,30 @@ Overrides:
 - `GANTT_RECALC` — `excel`, `libreoffice` or `none` to force the choice.
 - `GANTT_SOFFICE` — an explicit path to the `soffice` binary.
 
+### Proving which engine actually ran
+
+Selecting a backend is not the same as it working. This builds a throwaway
+workbook, recalculates it, and reports both the value that came back and the
+application that produced it — every engine stamps its name into
+`docProps/app.xml`, so the answer cannot be faked:
+
+```sh
+python -m gantt.recalc
+```
+
+```
+selected     : excel via COM
+backend      : excel
+computed 1+1 : 2  (expected 2)
+written by   : Microsoft Excel
+
+OK: the selected engine really recalculated the workbook.
+```
+
+A computed `2` proves something evaluated the formula; the stamp proves what.
+Exit status is non-zero if the engine that ran is not the one selected, so this
+is safe to put in a setup script.
+
 ## How it works
 
 Effort is derived, never typed: `base_days(complexity) ÷ proficiency(assignee)`
