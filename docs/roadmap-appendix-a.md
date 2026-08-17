@@ -1,7 +1,7 @@
 # Roadmap — Appendix A and B
 
 Date: 2026-08-15
-Status: Phases 0, 1 and 2 complete; Phases 3-6 proposed
+Status: Phases 0-4 complete; Phase 5 in progress; Phases 6-7 proposed
 
 Decisions taken (Appendix A): `% done` is needed; `Done` work appears in the
 Gantt where it actually happened; the field-ownership split is confirmed; real
@@ -191,7 +191,7 @@ survive.
 
 Size: M.
 
-### Phase 3 — Status and remaining effort (schema v2)
+### Phase 3 — Status and remaining effort (schema v2) — **DONE**
 
 - `Status` on `Sub-Tasks`: `TODO` / `In Progress` / `Done`, default `TODO`.
 - `% done`, 0–100, meaningful while `In Progress`.
@@ -203,9 +203,23 @@ Size: M.
 - A v1 file imports with `status = TODO`, `% done = 0` — which is the first real
   exercise of the backward-compatibility rule.
 
-Size: M.
+Delivered as specified. Size: M.
 
-### Phase 4 — Current week, actuals, and history in the Gantt
+**Found afterward, the hard way.** Migrating a real v5 workbook to v6 put
+assignee names in `Status` and day counts in `% done`. Export read every file
+by *today's* column positions, and Phase 3 had inserted the two new columns
+exactly where a pre-v3 file kept its derived `Effective assignee` and `Effort`
+— so the exporter collected formulas, or in a file Excel had saved, their
+cached results, which look exactly like ordinary data. The Phase 1 invariant
+("nothing computed is ever read") was right; the bug was assuming the column
+map never moves. Fixed by stamping the schema version a workbook was built
+with into the file itself (`TplSchemaVersion`) and having export read each
+file by *its own* map, plus a hard refusal to import into a workbook older
+than the tool. Worth carrying forward: **any column insertion is a migration
+hazard**, not just a formula-writing exercise, the moment a populated
+workbook exists on the other end.
+
+### Phase 4 — Current week, actuals, and history in the Gantt — **DONE**
 
 - `Current week` on `Config`, typed rather than `=TODAY()` so the plan does not
   shift underneath you between openings, with a helper cell showing today's week.
@@ -218,9 +232,34 @@ Size: M.
 - Assignee load reads continuously across the current-week boundary: actuals
   behind it, plan ahead of it.
 
-Size: L, and the phase that most increases what a reader must hold in their head.
+Delivered as specified, in two sub-commits (4a: the current-week anchor; 4b:
+recording actuals and drawing history) plus two follow-on fixes. Size: L, and
+the phase that most increases what a reader must hold in their head, as
+predicted below.
 
-### Phase 5 — Convergence diagnostics
+Lessons worth carrying forward:
+
+- **Finished work has to be checked first.** A Done task has no remaining
+  effort, so every downstream check fired — "not scheduled" for work that is
+  simply complete. Status is now the first thing `Check` looks at.
+- **Status is authoritative over % done, not merely a synonym for it.**
+  Marking a sub-task Done and leaving `% done` blank is safe — remaining goes
+  to zero regardless. The reverse is deliberately not symmetric: `In Progress`
+  with a blank `% done` reads as no progress and claims full effort, which
+  overstates what is left rather than understating it. The safer direction,
+  but worth knowing.
+- **Every hardcoded column letter had to go.** Inserting the two actual-date
+  columns meant first removing some thirty hand-written `$F{r}`-style
+  references from `sheet_work.py` — a letter written in by hand silently
+  changes meaning when anything to its left moves. This is the same fault
+  that caused the v5→v6 migration bug, one layer down. Formulas now look up
+  every column letter from `layout.py`.
+- **Export never read the current-week pointer**, so a rebuild silently reset
+  "now" to whatever the template ships with and every planned start moved
+  with it — nothing would have *looked* broken. Schema v3: actual dates are
+  JSON-owned observed facts, and a v2 payload imports with them blank.
+
+### Phase 5 — Convergence diagnostics — **IN PROGRESS**
 
 - Quantified columns on `Tasks`: `Remaining`, `Scheduled`, `Shortfall`, and the
   week it finishes or "beyond horizon".
@@ -248,11 +287,90 @@ Size: M, mostly formulas over grids that already exist.
 
 Size: M for the specification.
 
+### Phase 7 — Commit-log calibration for effort and proficiency (proposed)
+
+Every number that drives scheduling — `base_days` per complexity, `proficiency`
+per assignee — is currently a hand-entered guess. Phase 4 gives the project its
+own history (`Actual start WW` / `Actual end WW`, `Status`, `% done`); once
+enough sub-tasks have actually finished, that history can replace the guesses
+with numbers the project itself produced. This is a calibration loop, not a
+one-shot fix: run it periodically as more work completes and the estimates
+should keep converging on reality.
+
+**Depends on Phase 4's actuals existing in real, lived-in data** — this is not
+buildable against the demo dataset, which has only a handful of finished
+sub-tasks. It needs a project that has been run for a while first.
+
+**Data sources:**
+
+- Finished (`Done`) sub-tasks with recorded `Actual start WW` / `Actual end
+  WW`, exported via `python -m gantt.exchange export` — complexity, assignee,
+  and observed duration are all already there.
+- `git log` for the project repository the work actually happened in (not this
+  template's own repo — the *target* project's), read per author and per
+  commit date. This is a signal that work happened and roughly when, not a
+  measure of how much.
+
+**Computation.** `base_days` and `proficiency` are both unknown and only their
+ratio is observed (`effort = base_days[complexity] / proficiency[assignee]`),
+so a single finished sub-task cannot solve for either — there are more
+unknowns than equations. With enough observations across multiple assignees
+and complexities, though, the system is over-determined and a least-squares
+fit recovers both, the same way the template already fixes one assignee's
+proficiency at 1.0 as a reference point. Sketch:
+
+1. For every Done sub-task, compute observed effort as business days between
+   `Actual start WW` and `Actual end WW` (coarse — see risks below).
+2. Cross-reference commits authored by that sub-task's assignee falling inside
+   the actual-start/actual-end window, as a corroborating signal that work
+   happened and roughly how much — not as the primary effort measure.
+3. Fit `log(observed_effort) = log(base_days[complexity]) -
+   log(proficiency[assignee])` by least squares across all observations, one
+   assignee pinned at `proficiency = 1.0` to resolve the scale ambiguity.
+4. Report the fitted values alongside the current hand-entered ones and the
+   sample size behind each — a complexity/assignee pair with one data point
+   should say so, not be presented with the same confidence as one with fifty.
+
+**Output: a report, not a write.** This has to stay advisory. `Config` and
+`Assignees` are planning decisions, and the field-ownership rule established
+in Phase 2 — the JSON/ingest side owns observed facts, the workbook owns
+planning decisions — applies here too: a calibration run must never silently
+rewrite `base_days` or `proficiency` underneath the planner. It proposes; a
+human decides whether to type the new numbers in. Likely shape: a new
+`python -m gantt.calibrate` CLI command (or a script alongside `exchange.py`)
+that reads a JSON export plus a git log and prints a suggested-values table.
+
+**Where this lives.** Not inside the workbook or the generator — git history
+is specific to the *project* being managed, not to the Gantt template, which
+has to stay generic enough to duplicate for any project (per this document's
+own goal). A standalone module reading `gantt.exchange export` output plus
+`git log` output is the right shape; it should not become a dependency of
+`gantt/build.py`.
+
+**Risks, named up front rather than discovered later:**
+
+- Commit count or frequency is a weak, gameable effort proxy — assignees
+  commit at wildly different granularities. Treat it as corroboration for the
+  actual-date signal, never as the primary measure.
+- `Actual start WW` / `Actual end WW` are week-granularity, so observed
+  duration carries roughly ±6 days of noise per sub-task. Calibration needs
+  many observations per complexity/assignee cell before the fit means
+  anything; the report should say so rather than presenting a two-observation
+  fit as settled.
+- Git authorship does not automatically match the `Assignee` column — pairing,
+  handle mismatches, and rebasing all break a naive name join. An explicit
+  assignee ↔ git-author mapping is a prerequisite, not an assumption.
+- This is opt-in, offline tooling run by a human periodically — not something
+  the weekly ingest skill in Phase 6 should call automatically.
+
+Size: L, and the phase most likely to need a second pass once it meets real
+data — the sketch above is a starting point, not a finished spec.
+
 ## Sequencing
 
 ```
-0 Portability ──► 1 Export ──► 2 Import/rebuild ──► 3 Status ──► 4 Actuals ──► 5 Diagnostics ──► 6 Skill spec
-    DONE            DONE            DONE             (schema v2)   (history)     (actionable)      (Opencode)
+0 Portability ──► 1 Export ──► 2 Import/rebuild ──► 3 Status ──► 4 Actuals ──► 5 Diagnostics ──► 6 Skill spec ──► 7 Calibration
+    DONE            DONE            DONE               DONE          DONE      (in progress)      (Opencode)      (proposed)
 ```
 
 Phase 2 added one lesson worth carrying forward: **a value round-trip is not a
