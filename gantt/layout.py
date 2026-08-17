@@ -87,9 +87,17 @@ T_N_SUBS = 9
 T_EFFORT = 10
 T_REMAINING = 11
 T_STATUS = 12
-T_CALC_START = 13
-T_CALC_END = 14
-T_CHECK = 15
+# Convergence diagnostics (Phase 5). Scheduled is what actually landed in the
+# grid — history plus plan, confined to the horizon; Shortfall is what did not.
+# Constraint is a best-effort diagnosis of why, checked only against the task's
+# *default* assignee rather than the true mix across overridden sub-tasks — a
+# deliberate simplification, documented where the formula is built.
+T_SCHEDULED = 13
+T_SHORTFALL = 14
+T_CONSTRAINT = 15
+T_CALC_START = 16
+T_CALC_END = 17
+T_CHECK = 18
 TASK_FIRST_ROW = 2
 
 TASK_HEADERS = {
@@ -105,6 +113,9 @@ TASK_HEADERS = {
     T_EFFORT: "Effort (days)",
     T_REMAINING: "Remaining (days)",
     T_STATUS: "Status",
+    T_SCHEDULED: "Scheduled (days)",
+    T_SHORTFALL: "Shortfall (days)",
+    T_CONSTRAINT: "Binding constraint",
     T_CALC_START: "Start WW",
     T_CALC_END: "End WW",
     T_CHECK: "Check",
@@ -112,6 +123,7 @@ TASK_HEADERS = {
 TASK_INPUT_COLS = [T_ID, T_NAME, T_CATEGORY, T_PRIORITY, T_COMPLEXITY,
                    T_EQUIPMENT, T_DEF_ASSIGNEE, T_START_WW]
 TASK_DERIVED_COLS = [T_N_SUBS, T_EFFORT, T_REMAINING, T_STATUS,
+                     T_SCHEDULED, T_SHORTFALL, T_CONSTRAINT,
                      T_CALC_START, T_CALC_END, T_CHECK]
 
 # --- Sub-Tasks sheet columns ----------------------------------------------

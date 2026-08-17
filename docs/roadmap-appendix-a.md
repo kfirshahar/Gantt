@@ -1,7 +1,7 @@
 # Roadmap — Appendix A and B
 
 Date: 2026-08-15
-Status: Phases 0-4 complete; Phase 5 in progress; Phases 6-7 proposed
+Status: Phases 0-5 complete; Phases 6-7 proposed
 
 Decisions taken (Appendix A): `% done` is needed; `Done` work appears in the
 Gantt where it actually happened; the field-ownership split is confirmed; real
@@ -259,7 +259,7 @@ Lessons worth carrying forward:
   with it — nothing would have *looked* broken. Schema v3: actual dates are
   JSON-owned observed facts, and a v2 payload imports with them blank.
 
-### Phase 5 — Convergence diagnostics — **IN PROGRESS**
+### Phase 5 — Convergence diagnostics — **DONE**
 
 - Quantified columns on `Tasks`: `Remaining`, `Scheduled`, `Shortfall`, and the
   week it finishes or "beyond horizon".
@@ -269,7 +269,43 @@ Lessons worth carrying forward:
   would absorb it, the bottleneck assignee, and the smallest single change that
   would make the plan converge.
 
-Size: M, mostly formulas over grids that already exist.
+Delivered as specified. Size: M, mostly formulas over grids that already
+existed — confirmed true, no new hidden-sheet infrastructure was needed.
+
+**`Scheduled` and `Remaining` are not the same axis, and the demo data makes
+that concrete.** T-04 has ~42 days of untouched (`Remaining`) work, but only a
+sliver of it — the `Shortfall` — actually fails to land inside the horizon.
+Reading `Remaining` alone (all Phase 3 gave you) cannot tell those apart; a
+task can be almost entirely unscheduled work and still converge fine, or be
+mostly scheduled and still miss by a day. This is the concrete answer to
+Appendix A's original complaint that "it is not clear how to make changes in
+order to make the plan converge."
+
+**The binding-constraint classification is deliberately simplified**, and
+worth knowing precisely how: it checks capacity against a task's *default*
+assignee only, never the true mix across sub-tasks with an assignee override.
+Modelling the real mix would mean deduplicating shared capacity across
+sub-tasks and tasks — which is what the spill-over engine already does, so a
+second, independent attempt at it risks becoming a second scheduling engine
+that can disagree with the first. Good enough to point at the right lever
+(horizon, a specific assignee's capacity, or priority order); not a proof.
+
+**"Weeks to absorb it" assumes the shortfall spreads evenly across everyone
+at their average capacity.** That is optimistic exactly when the real
+constraint is concentrated in one person or one skill — the case the
+`Bottleneck assignee` row exists to surface separately, precisely because the
+average-rate number understates the fix needed when there is a dominant
+bottleneck. The Guide says this plainly rather than letting the number read
+as more precise than it is.
+
+**A formula that evaluates to `""` is stored as a blank cell on
+recalculation, not a literal empty string** — caught by a test comparing
+against a hardcoded `""` and failing with `None == ''`. Every prior "blank
+when not applicable" column in this workbook happened to also be the *outer*
+guard (`IF($A{r}="","",...)`), so this had not come up before; `Binding
+constraint` is the first column that returns `""` from an *inner* branch on a
+populated row. Worth remembering for any future diagnostic column: normalise
+with `cell.value or ""` when a test compares against a literal blank.
 
 ### Phase 6 — Agent skill specification for Opencode
 
@@ -370,7 +406,7 @@ data — the sketch above is a starting point, not a finished spec.
 
 ```
 0 Portability ──► 1 Export ──► 2 Import/rebuild ──► 3 Status ──► 4 Actuals ──► 5 Diagnostics ──► 6 Skill spec ──► 7 Calibration
-    DONE            DONE            DONE               DONE          DONE      (in progress)      (Opencode)      (proposed)
+    DONE            DONE            DONE               DONE          DONE          DONE            (Opencode)      (proposed)
 ```
 
 Phase 2 added one lesson worth carrying forward: **a value round-trip is not a

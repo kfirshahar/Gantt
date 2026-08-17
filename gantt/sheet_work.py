@@ -55,9 +55,11 @@ def build_tasks(ws) -> None:
         # anywhere to the left silently rewrites what every hardcoded one means.
         c_id = L.col(L.T_ID)
         c_start = L.col(L.T_START_WW)
+        c_def_asg = L.col(L.T_DEF_ASSIGNEE)
         c_subs = L.col(L.T_N_SUBS)
         c_remaining = L.col(L.T_REMAINING)
         c_status = L.col(L.T_STATUS)
+        c_shortfall = L.col(L.T_SHORTFALL)
         tw_row = L.CW_TASKWEEK_FIRST + (r - L.TASK_FIRST_ROW)
         span = (f"{L.sheet_ref(L.CALC_WEEK)}!"
                 f"${L.col(L.CW_FIRST_WEEK_COL)}${tw_row}:${L.col(N.CW_LAST_WEEK_COL)}${tw_row}")
@@ -82,9 +84,42 @@ def build_tasks(ws) -> None:
             f'IF(COUNTIFS(SubParent,${c_id}{r},SubStatus,{done_label})=${c_subs}{r},{done_label},'
             f'IF(COUNTIFS(SubParent,${c_id}{r},SubStatus,{todo_label})=${c_subs}{r},{todo_label},'
             f'{active_label}))))'))
+
+        # Scheduled is history plus plan, confined to the horizon — the same sum
+        # the start/end labels below already read off the grid. Shortfall is the
+        # gap between that and the task's full effort: distinct from Remaining,
+        # which counts undone work whether or not it found a week to land in.
+        scheduled = f'SUM({span})'
+        shortfall = f'MAX(0,ROUND({effort}-{scheduled},2))'
+        ws.cell(row=r, column=L.T_SCHEDULED,
+                value=f'=IF(${c_id}{r}="","",ROUND({scheduled},2))').number_format = "0.00"
+        ws.cell(row=r, column=L.T_SHORTFALL,
+                value=f'=IF(${c_id}{r}="","",{shortfall})').number_format = "0.00"
+
+        # Binding constraint: a best-effort diagnosis of *why* a task falls
+        # short, checked only against its own Earliest start WW and *default*
+        # assignee — not the true mix of assignees across overridden sub-tasks,
+        # which would mean deduplicating shared capacity across tasks and risks
+        # becoming a second scheduling engine. Good enough to point at the right
+        # lever; not a guarantee.
+        current_pos = 'IFERROR(MATCH(CfgCurrentWeek,CwWeeks,0),1)'
+        start_pos_for_work = f'MAX({current_pos},IFERROR(MATCH(${c_start}{r},CwWeeks,0),{current_pos}))'
+        weeks_left = f'(CfgHorizon-{start_pos_for_work}+1)'
+        avail_capacity = (
+            f'SUMPRODUCT((CwPos>={start_pos_for_work})*(CwPos<=CfgHorizon)*'
+            f'IFERROR(INDEX(CapGrid,MATCH(${c_def_asg}{r},CapNames,0),0),0)*CwFactor)')
+        ws.cell(row=r, column=L.T_CONSTRAINT, value=(
+            f'=IF(${c_id}{r}="","",IF(${c_shortfall}{r}<=0,"",'
+            f'IF({weeks_left}*{L.WORKDAYS_PER_WEEK}<${c_shortfall}{r},"horizon too short",'
+            f'IF({avail_capacity}<${c_shortfall}{r},"no capacity in range",'
+            f'"higher-priority work"))))'))
+
         # Start and end are resolved as grid positions and then rendered through
         # the shared label, so a task running into next year reads WW01 '27
-        # rather than a week number that does not exist.
+        # rather than a week number that does not exist. End reads "beyond
+        # horizon" rather than the truncated last week with any allocation,
+        # which used to look like a real finish date for work that had not
+        # actually finished.
         start_pos = f'SUMPRODUCT(MIN(({span}>0)*CwPos+({span}<=0)*9999))'
         end_pos = f'SUMPRODUCT(MAX(({span}>0)*CwPos))'
         ws.cell(row=r, column=L.T_CALC_START, value=(
@@ -92,7 +127,8 @@ def build_tasks(ws) -> None:
             f'IFERROR(INDEX(CwLabel,{start_pos}),"")))'))
         ws.cell(row=r, column=L.T_CALC_END, value=(
             f'=IF(${c_id}{r}="","",IF(SUM({span})=0,"",'
-            f'IFERROR(INDEX(CwLabel,{end_pos}),"")))'))
+            f'IF(${c_shortfall}{r}>0,"beyond horizon",'
+            f'IFERROR(INDEX(CwLabel,{end_pos}),""))))'))
 
         # A start week is valid only if it names one of the built columns *and*
         # that column is inside the horizon.
@@ -109,7 +145,7 @@ def build_tasks(ws) -> None:
             f'IF({pos}>CfgHorizon,"⚠ starts beyond the horizon",'
             f'IF(ROUND(${c_remaining}{r},4)<=0,"in progress",'
             f'IF(SUM({span})=0,"⚠ not scheduled",'
-            f'IF(ROUND(SUM({span}),4)<ROUND({effort},4),"⚠ overruns horizon","ok"))))))))'))
+            f'IF(${c_shortfall}{r}>0,"⚠ overruns horizon","ok"))))))))'))
 
         for c in L.TASK_DERIVED_COLS:
             S.mark_derived(ws.cell(row=r, column=c))
@@ -124,8 +160,8 @@ def build_tasks(ws) -> None:
     _check_formatting(ws, L.T_CHECK, L.TASK_FIRST_ROW, N.LAST_TASK_ROW)
 
     S.widths(ws, {"A": 10, "B": 24, "C": 12, "D": 9, "E": 12, "F": 15, "G": 17,
-                  "H": 17, "I": 12, "J": 13, "K": 13, "L": 14, "M": 10, "N": 10,
-                  "O": 22})
+                  "H": 17, "I": 12, "J": 13, "K": 13, "L": 14, "M": 12, "N": 12,
+                  "O": 20, "P": 10, "Q": 16, "R": 22})
     ws.freeze_panes = "C2"
     r = N.LAST_TASK_ROW + 2
     ws.cell(row=r, column=1,

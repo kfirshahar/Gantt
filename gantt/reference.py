@@ -247,3 +247,89 @@ def equipment_demand(rows: list[SubTask], horizon: int | None = None) -> dict[st
             if v > 0:
                 out[equip][w] += 1
     return out
+
+
+# --- Convergence diagnostics (Phase 5) --------------------------------------
+
+def task_effort(tid: str, rows: list[SubTask]) -> float:
+    return sum(s.effort for s in rows if s.parent == tid)
+
+
+def task_scheduled(tid: str, rows: list[SubTask], horizon: int | None = None) -> float:
+    """History plus plan, confined to the horizon — what actually landed."""
+    return sum(task_load(rows, horizon)[tid].values())
+
+
+def task_shortfall(tid: str, rows: list[SubTask], horizon: int | None = None) -> float:
+    return max(0.0, task_effort(tid, rows) - task_scheduled(tid, rows, horizon))
+
+
+def binding_constraint(tid: str, rows: list[SubTask], horizon: int | None = None,
+                       current_week: int | None = None) -> str:
+    """Best-effort diagnosis of why a task does not converge.
+
+    Deliberately simplified to mirror the workbook: capacity is checked
+    against the task's *default* assignee only, not the true mix across
+    overridden sub-tasks — computing the real mix would mean deduplicating
+    shared assignees across sub-tasks, which risks becoming a second
+    scheduling engine. "" means the task has no shortfall.
+    """
+    _, _, _, tasks, _ = _lookups()
+    shortfall = task_shortfall(tid, rows, horizon)
+    if shortfall <= 1e-9:
+        return ""
+
+    weeks = _weeks(horizon)
+    start = planning_start(tid, current_week)
+    remaining_weeks = [w for w in weeks if w >= start]
+    if len(remaining_weeks) * C.WORKDAYS_PER_WEEK < shortfall:
+        return "horizon too short"
+
+    default_assignee = tasks[tid][6]
+    available = sum(week_capacity(default_assignee, w, weeks) for w in remaining_weeks)
+    if available < shortfall:
+        return "no capacity in range"
+
+    return "higher-priority work"
+
+
+def plan_health(rows: list[SubTask], horizon: int | None = None,
+                current_week: int | None = None) -> dict:
+    """The Gantt-High summary block: how much does not fit, and where to look.
+
+    `weeks_to_absorb` and `bottleneck_assignee` are both computed only over
+    weeks from the current one to the horizon's end — saturation in a week
+    that has already happened is not something anyone can act on.
+    """
+    _, _, _, tasks, _ = _lookups()
+    weeks = _weeks(horizon)
+    current = demo.CURRENT_WEEK if current_week is None else current_week
+    future = [w for w in weeks if w >= current]
+
+    total_shortfall = sum(task_shortfall(t[0], rows, horizon) for t in demo.TASKS)
+
+    names = [n for n, _ in demo.ASSIGNEES]
+    total_capacity = sum(week_capacity(n, w, weeks) for n in names for w in future)
+    avg_weekly_capacity = (total_capacity / len(names) / len(future)
+                           if names and future else 0.0)
+    weeks_to_absorb = (0 if total_shortfall <= 1e-9 else
+                       None if avg_weekly_capacity <= 0 else
+                       -(-total_shortfall // avg_weekly_capacity))  # ceil
+
+    loads = assignee_load(rows, horizon)
+    saturation = {}
+    for name in names:
+        saturation[name] = sum(
+            1 for w in future
+            if week_capacity(name, w, weeks) > 0
+            and loads[name][w] >= week_capacity(name, w, weeks) - 1e-9)
+    bottleneck = max(saturation, key=saturation.get) if names else None
+    if bottleneck is not None and saturation[bottleneck] <= 0:
+        bottleneck = "none"
+
+    return {
+        "total_shortfall": total_shortfall,
+        "weeks_to_absorb": weeks_to_absorb,
+        "bottleneck_assignee": bottleneck,
+        "saturation": saturation,
+    }

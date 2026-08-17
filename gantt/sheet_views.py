@@ -28,11 +28,13 @@ def build_gantt_high(ws) -> None:
     load_last = _assignee_load(ws, last_week_col)
     timeline_last = _task_timeline(ws, load_last + 2, last_week_col)
     equip_last = _equipment_block(ws, timeline_last + 2, last_week_col)
-    _checks(ws, equip_last + 2)
+    checks_last = _checks(ws, equip_last + 2)
+    _plan_health(ws, checks_last + 2, last_week_col + 1)
 
     S.widths(ws, {"A": 38, "B": 9})
     for i in range(L.WEEK_COLS):
         ws.column_dimensions[L.col(GH_WEEK_COL + i)].width = 8
+    ws.column_dimensions[L.col(last_week_col + 1)].width = 11
     ws.freeze_panes = L.col(GH_WEEK_COL) + str(GH_LOAD_FIRST)
 
 
@@ -108,8 +110,24 @@ def _assignee_load(ws, last_col: int) -> int:
             top=Side(style="thin", color="D2D6DC"),
             bottom=Side(style="medium", color=S.INK))
 
+        # How many weeks, from now to the horizon's end, this person has no
+        # slack left in. History is excluded — saturation in a week that has
+        # already happened is not a lever anyone can pull.
+        sat_col = last_col + 1
+        first, last_c = L.col(GH_WEEK_COL), L.col(last_col)
+        used_range = f"{first}{used_row}:{last_c}{used_row}"
+        avail_range = f"{first}{avail_row}:{last_c}{avail_row}"
+        flag_range = f"{first}${L.GH_FLAG_ROW}:{last_c}${L.GH_FLAG_ROW}"
+        hist_range = f"{first}${L.GH_HIST_ROW}:{last_c}${L.GH_HIST_ROW}"
+        ws.cell(row=used_row, column=sat_col, value=(
+            f'=IF($A{used_row}="","",SUMPRODUCT(({used_range}>={avail_range})*'
+            f'({avail_range}>0)*({flag_range}=1)*({hist_range}=0)))'
+        )).alignment = S.CENTER
+
     last = GH_LOAD_FIRST + 2 * L.MAX_ASSIGNEES - 1
     S.grey_inactive_weeks(ws, GH_WEEK_COL, last_col, GH_LOAD_HDR, last, L.GH_FLAG_ROW)
+    ws.cell(row=GH_LOAD_HDR, column=last_col + 1, value="Saturated").font = S.FONT_HDR
+    ws.cell(row=GH_LOAD_HDR, column=last_col + 1).fill = S.FILL_OUTPUT_HDR
     return last
 
 
@@ -209,7 +227,7 @@ def _equipment_block(ws, start_row: int, last_col: int) -> int:
     return last
 
 
-def _checks(ws, start_row: int) -> None:
+def _checks(ws, start_row: int) -> int:
     """Conditions that make a plan wrong, as distinct from merely tight."""
     S.section(ws, start_row, "Checks", span=6)
     S.header_row(ws, start_row + 1, 1, ["Check", "Count"], output=True)
@@ -245,10 +263,87 @@ def _checks(ws, start_row: int) -> None:
         type="cellIs", operator="equal", formula=["0"],
         dxf=DifferentialStyle(fill=S.CF_OK)))
 
-    note = ws.cell(row=start_row + 2 + len(checks) + 1, column=1, value=(
+    note_row = start_row + 2 + len(checks) + 1
+    note = ws.cell(row=note_row, column=1, value=(
         "Saturation and equipment shortage are information, not errors — they show "
         "where the plan is tight. Work that does not fit the horizon is the row to act on."))
     note.font = S.FONT_NOTE
+    return note_row
+
+
+def _plan_health(ws, start_row: int, sat_col: int) -> int:
+    """One screen's worth of "is this plan usable, and if not, what would fix
+    it" — the quantified Shortfall column on Tasks, rolled up.
+
+    `weeks_to_absorb` assumes the shortfall could be spread across every
+    assignee at their average rate, which is optimistic when the real
+    constraint is one person or one skill; it is a ballpark, not a promise.
+    Bottleneck assignee is read off the Saturated column built alongside the
+    assignee-load block above, restricted the same way it is: future weeks,
+    inside the horizon.
+    """
+    S.section(ws, start_row, "Plan health", span=6)
+
+    task_shortfall = L.abs_range(L.TASKS, L.T_SHORTFALL, L.TASK_FIRST_ROW,
+                                 L.T_SHORTFALL, N.LAST_TASK_ROW)
+    total_shortfall = f"ROUND(SUM({task_shortfall}),2)"
+    current_pos = "IFERROR(MATCH(CfgCurrentWeek,CwWeeks,0),1)"
+    weeks_left = f"(CfgHorizon-{current_pos}+1)"
+    n_assignees = 'MAX(1,COUNTIF(AsgNames,"<>"))'
+    # Parenthesised as a whole: it is used as a divisor below, and it is itself
+    # a chain of divisions — `total/avg` without the parens would associate as
+    # `total/A/B/C` rather than `total/(A/B/C)`.
+    avg_weekly_capacity = (
+        f"(SUMPRODUCT((CwPos>={current_pos})*(CwPos<=CfgHorizon)*CapGrid*CwFactor)"
+        f"/{n_assignees}/MAX(1,{weeks_left}))")
+
+    total_row = start_row + 2
+    weeks_row = total_row + 1
+    bottleneck_row = weeks_row + 1
+    change_row = bottleneck_row + 1
+
+    ws.cell(row=total_row, column=1, value="Total shortfall (days)").border = S.BORDER_ALL
+    total_cell = ws.cell(row=total_row, column=2, value=f"={total_shortfall}")
+    total_cell.alignment = S.CENTER
+    total_cell.border = S.BORDER_ALL
+
+    ws.cell(row=weeks_row, column=1, value="Weeks to absorb it").border = S.BORDER_ALL
+    b_total = f"$B{total_row}"
+    weeks_cell = ws.cell(row=weeks_row, column=2, value=(
+        f'=IF({b_total}<=0,0,IF({avg_weekly_capacity}<=0,"n/a",'
+        f'ROUNDUP({b_total}/{avg_weekly_capacity},0)))'))
+    weeks_cell.alignment = S.CENTER
+    weeks_cell.border = S.BORDER_ALL
+
+    # The Saturated column only has values on a "Used" row, spaced two apart;
+    # blanks on the "Avail" rows in between are text, which MAX and MATCH both
+    # skip over.
+    sat_range = (f"{L.col(sat_col)}{GH_LOAD_FIRST}:"
+                 f"{L.col(sat_col)}{GH_LOAD_FIRST + 2 * L.MAX_ASSIGNEES - 1}")
+    name_range = f"A{GH_LOAD_FIRST}:A{GH_LOAD_FIRST + 2 * L.MAX_ASSIGNEES - 1}"
+    ws.cell(row=bottleneck_row, column=1, value="Bottleneck assignee").border = S.BORDER_ALL
+    bottleneck_cell = ws.cell(row=bottleneck_row, column=2, value=(
+        f'=IF(MAX({sat_range})<=0,"none",'
+        f'INDEX({name_range},MATCH(MAX({sat_range}),{sat_range},0)))'))
+    bottleneck_cell.alignment = S.CENTER
+    bottleneck_cell.border = S.BORDER_ALL
+
+    ws.cell(row=change_row, column=1, value="Smallest single change").border = S.BORDER_ALL
+    b_weeks = f"$B{weeks_row}"
+    change_cell = ws.cell(row=change_row, column=2, value=(
+        f'=IF({b_total}<=0,"Plan converges — nothing to change.",'
+        f'IF(ISNUMBER({b_weeks}),'
+        f'"Extend Horizon by "&{b_weeks}&" week(s) would absorb the shortfall '
+        f'at average capacity.","No single change sized — check capacity."))'))
+    change_cell.alignment = S.CENTER
+    change_cell.border = S.BORDER_ALL
+
+    note = ws.cell(row=change_row + 2, column=1, value=(
+        "Weeks to absorb assumes the shortfall spreads across everyone at their "
+        "average rate — a ballpark, not a promise, if one person or skill is the "
+        "real constraint. See Binding constraint on Tasks for the per-task reason."))
+    note.font = S.FONT_NOTE
+    return change_row + 2
 
 
 # --- Gantt-Deep ------------------------------------------------------------

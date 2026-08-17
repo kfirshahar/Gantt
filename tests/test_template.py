@@ -14,7 +14,7 @@ from openpyxl import load_workbook
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from gantt import (calendar_utils as C, demo, layout as L, names as N,  # noqa: E402
-                   recalc, reference, styles as S)
+                   recalc, reference, sheet_views as V, styles as S)
 from gantt.build import build  # noqa: E402
 
 # Which engine recalculates the workbook is a platform decision, not a test one.
@@ -223,6 +223,45 @@ def test_holidays_reduce_weekly_bandwidth(values):
             f"{name}: holidays subtracted nothing ({total_avail} == {raw_total})"
 
 
+def _find_row(ws, col: int, text: str) -> int:
+    for row in ws.iter_rows(min_col=col, max_col=col):
+        if row[0].value == text:
+            return row[0].row
+    raise AssertionError(f"{text!r} not found in column {col}")
+
+
+def test_saturated_weeks_count_only_future_in_horizon_weeks(values, solved):
+    """Per-assignee count of weeks with no slack left, ahead of the current
+    week — the lever the Plan health block points at."""
+    gh = values[L.GANTT_HIGH]
+    health = reference.plan_health(solved)
+    sat_col = V.GH_WEEK_COL + L.WEEK_COLS
+    for i, (name, _) in enumerate(demo.ASSIGNEES):
+        used_row = V.GH_LOAD_FIRST + 2 * i
+        assert gh.cell(row=used_row, column=sat_col).value == health["saturation"][name], name
+
+
+def test_plan_health_block_on_gantt_high(values, solved):
+    """Total shortfall, how many weeks would absorb it, and who is the
+    bottleneck — the summary the roadmap asks for, not a per-task detail."""
+    gh = values[L.GANTT_HIGH]
+    health = reference.plan_health(solved)
+    assert health["total_shortfall"] > 0, "demo data needs a real shortfall"
+
+    row = _find_row(gh, 1, "Total shortfall (days)")
+    assert abs(gh.cell(row=row, column=2).value - round(health["total_shortfall"], 2)) < TOL
+
+    row = _find_row(gh, 1, "Weeks to absorb it")
+    assert gh.cell(row=row, column=2).value == health["weeks_to_absorb"]
+
+    row = _find_row(gh, 1, "Bottleneck assignee")
+    assert (gh.cell(row=row, column=2).value or "none") == health["bottleneck_assignee"]
+
+    row = _find_row(gh, 1, "Smallest single change")
+    text = gh.cell(row=row, column=2).value
+    assert str(int(health["weeks_to_absorb"])) in text, text
+
+
 def test_no_day_exceeds_a_full_working_day(values, solved):
     """Nobody may be given more than their daily rate on any single day.
 
@@ -307,6 +346,92 @@ def test_task_status_and_remaining_derive_from_subtasks(values, solved):
             expected_status.get(tid, "TODO"), tid
         assert abs(ws.cell(row=row, column=L.T_REMAINING).value
                    - round(remaining[tid], 2)) < 0.01, tid
+
+
+def test_scheduled_and_shortfall_match_reference(values, solved):
+    """Scheduled is what actually landed in the grid; Shortfall is what did not.
+
+    Distinct from Remaining: T-04 has 42 days of remaining (untouched) work but
+    only a sliver of it fails to land inside the horizon.
+    """
+    ws = values[L.TASKS]
+    saw_shortfall = False
+    for i, task in enumerate(demo.TASKS):
+        row = L.TASK_FIRST_ROW + i
+        tid = task[0]
+        scheduled = reference.task_scheduled(tid, solved)
+        shortfall = reference.task_shortfall(tid, solved)
+        assert abs(ws.cell(row=row, column=L.T_SCHEDULED).value
+                   - round(scheduled, 2)) < 0.01, tid
+        assert abs(ws.cell(row=row, column=L.T_SHORTFALL).value
+                   - round(shortfall, 2)) < 0.01, tid
+        saw_shortfall = saw_shortfall or shortfall > 0
+
+    assert saw_shortfall, "demo data needs a task that does not fully fit"
+
+
+def test_binding_constraint_for_the_demo_data(values, solved):
+    """T-02 and T-04 both need Bob; T-04 outranks T-02, so Bob's days go to it
+    first. Neither is short of raw capacity or horizon length — the days exist,
+    they are simply spoken for by higher-priority work."""
+    ws = values[L.TASKS]
+    for i, task in enumerate(demo.TASKS):
+        row = L.TASK_FIRST_ROW + i
+        tid = task[0]
+        expected = reference.binding_constraint(tid, solved)
+        # A formula that evaluates to "" is stored as a blank cell, not a
+        # literal empty string, once recalculated.
+        assert (ws.cell(row=row, column=L.T_CONSTRAINT).value or "") == expected, tid
+    assert reference.binding_constraint("T-02", solved) == "higher-priority work"
+
+
+def test_task_end_reads_beyond_horizon_when_it_does_not_fit(values, solved):
+    """A truncated end week used to read like a real finish date. It has to say
+    so explicitly, or there is no way to tell a completed task from one that
+    silently lost its last few days to the horizon."""
+    ws = values[L.TASKS]
+    saw_overrun = False
+    for i, task in enumerate(demo.TASKS):
+        row = L.TASK_FIRST_ROW + i
+        tid = task[0]
+        end = ws.cell(row=row, column=L.T_CALC_END).value
+        if reference.task_shortfall(tid, solved) > 0:
+            assert end == "beyond horizon", tid
+            saw_overrun = True
+        else:
+            assert end != "beyond horizon", tid
+    assert saw_overrun, "demo data needs a task that overruns the horizon"
+
+
+def test_binding_constraint_when_the_assignee_has_no_capacity(built, tmp_path_factory):
+    """T-05 is Carol's alone. Zero her out entirely and nobody else can pick up
+    the work — the shortfall is real capacity, not competition."""
+    wb = load_workbook(built)
+    carol_row = L.GRID_FIRST_DATA_ROW + [n for n, _ in demo.ASSIGNEES].index("Carol")
+    for w in range(L.WEEK_COLS):
+        wb[L.CAPACITY].cell(row=carol_row, column=L.GRID_FIRST_WEEK_COL + w).value = 0
+    got = _recalc(wb, tmp_path_factory, "no_capacity")
+
+    row = L.TASK_FIRST_ROW + 4  # T-05
+    assert got[L.TASKS].cell(row=row, column=L.T_ID).value == "T-05"
+    assert got[L.TASKS].cell(row=row, column=L.T_SHORTFALL).value > 0
+    assert got[L.TASKS].cell(row=row, column=L.T_CONSTRAINT).value == "no capacity in range"
+
+
+def test_binding_constraint_when_the_horizon_is_too_short(built, tmp_path_factory):
+    """Two weeks cannot hold T-04's ~40 remaining days at any capacity —
+    the ceiling is the calendar, not any one assignee or competitor."""
+    wb = load_workbook(built)
+    horizon = 4  # T-04 starts at position 3 (WW35); two weeks remain
+    wb[L.CONFIG].cell(row=L.CFG_HORIZON_ROW, column=2).value = horizon
+    got = _recalc(wb, tmp_path_factory, "horizon_short")
+
+    solved = reference.solve(horizon=horizon)
+    row = L.TASK_FIRST_ROW + 3  # T-04
+    assert got[L.TASKS].cell(row=row, column=L.T_ID).value == "T-04"
+    expected = reference.binding_constraint("T-04", solved, horizon=horizon)
+    assert expected == "horizon too short", "test setup did not force the intended case"
+    assert got[L.TASKS].cell(row=row, column=L.T_CONSTRAINT).value == expected
 
 
 def test_daily_allocations_match_reference(values, solved):

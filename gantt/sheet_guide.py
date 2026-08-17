@@ -93,6 +93,30 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "from its sub-tasks, the same way its Effort is. Done means every sub-task is "
         "Done; TODO means none has started; anything else is In Progress.",
     ]),
+    ("Diagnosing a plan that does not converge", [
+        "Remaining is undone work regardless of whether it found a week; "
+        "Scheduled is what actually landed in the grid — history plus plan, "
+        "confined to the horizon; Shortfall is the gap between a task's Effort "
+        "and its Scheduled days. A task can have a large Remaining and a tiny "
+        "Shortfall: most of the work fit, only a sliver overran.",
+        "End now reads 'beyond horizon' whenever Shortfall is above zero, "
+        "instead of the last week that happened to get any allocation — which "
+        "used to look like a real finish date for work that had not actually "
+        "finished.",
+        "Binding constraint says why, for a task with a shortfall: 'horizon too "
+        "short' means not enough weeks remain at any capacity; 'no capacity in "
+        "range' means its own default assignee cannot cover the gap even alone; "
+        "'higher-priority work' means the days exist but a higher-ranked task "
+        "claims them first. It is checked against the task's default assignee "
+        "only, not the true mix across overridden sub-tasks — a deliberate "
+        "simplification, good enough to point at the right lever.",
+        "Plan health on Gantt-High rolls this up: total Shortfall across every "
+        "task, a rough number of weeks that would absorb it at everyone's "
+        "average rate, which single assignee is saturated most often in the "
+        "weeks ahead, and the horizon extension that would converge the plan. "
+        "It is a ballpark, not a promise — a single dominant bottleneck needs "
+        "more than an average-rate extension to actually fix.",
+    ]),
     ("Rank — you never type it, and it cannot be broken", [
         "Rank is only the position in that queue: rank 1 is served first, rank 2 next. "
         "It is recalculated from scratch every time anything changes.",
@@ -139,8 +163,9 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "shown. Widen Horizon on Config, or bring the task forward.",
         "not scheduled (Tasks) — it has effort but nothing landed anywhere. Usually the "
         "assignee has no capacity at all.",
-        "overruns horizon (Tasks) — the work does not finish inside the horizon. Widen "
-        "Horizon, add capacity, or cut scope.",
+        "overruns horizon (Tasks) — the work does not finish inside the horizon. See "
+        "Shortfall and Binding constraint on the same row for how much and why, or "
+        "Plan health on Gantt-High for the whole-plan picture.",
     ]),
     ("Reading the Gantt tabs", [
         "Gantt-High — red on an assignee's Used row means saturated: no slack left that "
@@ -148,7 +173,8 @@ SECTIONS: list[tuple[str, list[str]]] = [
         "equipment Need row means more units are wanted than exist.",
         "Nobody is ever given more days than they have, so a week can never be "
         "over-allocated. Too much work shows up instead as 'Work days that do not fit "
-        "in the horizon' in the Checks block.",
+        "in the horizon' in the Checks block, or in more detail in Plan health "
+        "just below it.",
         "Gantt-Deep — a scrolling window of up to 8 weeks at day level. Change 'Window "
         "start week' to move it; it is not limited to the start of the project.",
         "Greyed-out week columns are outside the Horizon set on Config. They are not "
